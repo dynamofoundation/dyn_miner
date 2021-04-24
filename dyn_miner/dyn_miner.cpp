@@ -4,9 +4,10 @@
 #include <iostream>
 #include <nlohmann/json.hpp>
 #include <curl\curl.h>
-#include "crypto/sha256.h"
+#include "sha256.h"
 
 #include "Common.h"
+#include "dynhash.h"
 
 
 void diff_to_target(uint32_t* target, double diff);
@@ -56,15 +57,13 @@ int main()
 
     using json = nlohmann::json;
 
-    //json j = "{ \"id\": 0, \"method\" : \"getblocktemplate\", \"params\" : [{\"rules\": [\"segwit\"]}] }"_json;
-    json j = "{ \"id\": 0, \"method\" : \"getblocktemplate\", \"params\" : [{ \"rules\": [\"segwit\"] }] }"_json;
-
-    std::string jData = j.dump();
 
     struct MemoryStruct chunk;
 
     chunk.memory = (char*)malloc(1);
     chunk.size = 0;
+
+    CDynHash* hashFunction = new CDynHash();
 
     CURL* curl;
     CURLcode res;
@@ -73,6 +72,38 @@ int main()
 
     curl = curl_easy_init();
     if (curl) {
+        std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
+
+        chunk.size = 0;
+
+        curl_easy_setopt(curl, CURLOPT_URL, "http://192.168.1.62:6433");
+        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+        curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
+        curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
+
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, getHashRequest.c_str());
+
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        else {
+            json result = json::parse(chunk.memory);
+            printf("%s\n", result.dump().c_str());
+            int start_time = result["result"][0]["start_time"];
+            std::string program = result["result"][0]["program"];
+            hashFunction->addProgram(start_time, program);
+        }
+
+
+        chunk.size = 0;
+
+        json j = "{ \"id\": 0, \"method\" : \"getblocktemplate\", \"params\" : [{ \"rules\": [\"segwit\"] }] }"_json;
+        std::string jData = j.dump();
+
         curl_easy_setopt(curl, CURLOPT_URL,"http://192.168.1.62:6433");
         curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
         curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
@@ -90,6 +121,33 @@ int main()
             json result = json::parse(chunk.memory);
             printf("%s\n", result.dump().c_str());
 
+
+            std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
+
+            chunk.size = 0;
+
+            curl_easy_setopt(curl, CURLOPT_URL, "http://192.168.1.62:6433");
+            curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+            curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
+            curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
+
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, getHashRequest.c_str());
+
+            res = curl_easy_perform(curl);
+
+            if (res != CURLE_OK)
+                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+            else {
+                json result = json::parse(chunk.memory);
+                printf("%s\n", result.dump().c_str());
+            }
+
+
+
+
             uint32_t height = result["result"]["height"];
             uint32_t version = result["result"]["version"];
             std::string prevBlockHash = result["result"]["previousblockhash"];
@@ -100,22 +158,22 @@ int main()
             std::string strNativeTarget = result["result"]["target"];
 
 
-            std::vector<std::string> transactions;
+            
             int tx_size = 0;
             for (int i = 0; i < jtransactions.size(); i++) {
-                std::string strTransaction = jtransactions[i];
-                transactions.push_back(strTransaction);
+                std::string strTransaction = jtransactions[i]["data"];
                 tx_size += strlen(strTransaction.c_str()) / 2;
             }
-
+            
             
 
 
-            int tx_count = transactions.size();
+            int tx_count = jtransactions.size();
 
             //decode pay to address for miner
             static unsigned char pk_script[25] = { 0 };
-            std::string payToAddress("dy1quu537ptpsgck95fapf6dm73hg73yxdckeemzd5");
+            //std::string payToAddress("dy1quu537ptpsgck95fapf6dm73hg73yxdckeemzd5");
+            std::string payToAddress("dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc");            
             int pk_script_size = address_to_script(pk_script, sizeof(pk_script), payToAddress.c_str());
 
             //decode pay to address for developer
@@ -133,21 +191,14 @@ int main()
             memset(cbtx + 5, 0x00, 32);     //prev txn hash out
             le32enc((uint32_t*)(cbtx + 37), 0xffffffff);    //prev txn index out
             int cbtx_size = 43;
-            /* BIP 34: height in coinbase */
-            //if (work->height >= 1 && work->height <= 16) {
-                /* Use OP_1-OP_16 to conform to Bitcoin's implementation. */
-            //    cbtx[42] = work->height + 0x50;
-            //    cbtx[cbtx_size++] = 0x00; /* OP_0; pads to 2 bytes */
-            //}
-            //else {
 
-                for (int n = height; n; n >>= 8) {
-                    cbtx[cbtx_size++] = n & 0xff;
-                    if (n < 0x100 && n >= 0x80)
-                        cbtx[cbtx_size++] = 0;
-                }
-                cbtx[42] = cbtx_size - 43;
-            //}
+            for (int n = height; n; n >>= 8) {
+                cbtx[cbtx_size++] = n & 0xff;
+                if (n < 0x100 && n >= 0x80)
+                    cbtx[cbtx_size++] = 0;
+            }
+            cbtx[42] = cbtx_size - 43;
+
             cbtx[41] = cbtx_size - 42;      //script signature length
             le32enc((uint32_t*)(cbtx + cbtx_size), 0xffffffff);         //out sequence
             cbtx_size += 4;
@@ -188,6 +239,11 @@ int main()
                 cbtx[cbtx_size++] = 0xa9;
                 cbtx[cbtx_size++] = 0xed;
 
+                for (int i = 0; i < jtransactions.size(); i++) {
+                    std::string strTransactionHash = jtransactions[i]["hash"];
+                    hex2bin(wtree[i + 1], strTransactionHash.c_str(), 32);
+                    memrev(wtree[1 + i], 32);
+                }
                 /*
                 for (int i = 0; i < tx_count; i++) {
                     const json_t* tx = json_array_get(txa, i);
@@ -200,6 +256,7 @@ int main()
                     memrev(wtree[1 + i], 32);
                 }
                 */
+                
 
                 int n = tx_count + 1;
                 while (n > 1) {
@@ -226,7 +283,8 @@ int main()
             char* transactionString;
 
             n = varint_encode(txc_vi, 1 + tx_count);
-            transactionString = (char*)malloc(2 * (n + cbtx_size + tx_size) + 1);
+            transactionString = (char*)malloc(2 * (n + cbtx_size + tx_size) + 2);
+            memset(transactionString, 0, 2 * (n + cbtx_size + tx_size) + 2);
             bin2hex(transactionString, txc_vi, n);
             bin2hex(transactionString + 2 * n, cbtx, cbtx_size);
             char* txs_end = transactionString + strlen(transactionString);
@@ -235,42 +293,24 @@ int main()
             //create merkle root
 
             tree_entry *merkle_tree = (tree_entry*)malloc(32 * ((1 + tx_count + 1) & ~1));
-            size_t tx_buf_size = 32 * 1024;
-            unsigned char *tx = (unsigned char*)malloc(tx_buf_size);
+            //size_t tx_buf_size = 32 * 1024;
+            //unsigned char *tx = (unsigned char*)malloc(tx_buf_size);
             sha256d(merkle_tree[0], cbtx, cbtx_size);
-            /*
+            
             for (int i = 0; i < tx_count; i++) {
-                tmp = json_array_get(txa, i);
-                const char* tx_hex = json_string_value(json_object_get(tmp, "data"));
-                const size_t tx_hex_len = tx_hex ? strlen(tx_hex) : 0;
+                std::string tx_hex = jtransactions[i]["data"];
+                const size_t tx_hex_len = tx_hex.length();
                 const int tx_size = tx_hex_len / 2;
-                if (segwit) {
-                    const char* txid = json_string_value(json_object_get(tmp, "txid"));
-                    if (!txid || !hex2bin(merkle_tree[1 + i], txid, 32)) {
-                        applog(LOG_ERR, "JSON invalid transaction txid");
-                        goto out;
-                    }
-                    memrev(merkle_tree[1 + i], 32);
-                }
-                else {
-                    if (tx_size > tx_buf_size) {
-                        free(tx);
-                        tx_buf_size = tx_size * 2;
-                        tx = (unsigned char*)malloc(tx_buf_size);
-                    }
-                    if (!tx_hex || !hex2bin(tx, tx_hex, tx_size)) {
-                        applog(LOG_ERR, "JSON invalid transactions");
-                        goto out;
-                    }
-                    sha256d(merkle_tree[1 + i], tx, tx_size);
-                }
-                if (!submit_coinbase) {
-                    strcpy(txs_end, tx_hex);
-                    txs_end += tx_hex_len;
-                }
+                std::string txid = jtransactions[i]["txid"];
+                hex2bin(merkle_tree[1 + i], txid.c_str(), 32);
+                memrev(merkle_tree[1 + i], 32);
+                memcpy(txs_end, tx_hex.c_str(), tx_hex.length() );
+                txs_end += tx_hex_len;
             }
-            */
-            free(tx); tx = NULL;
+
+            //free(tx); 
+            //tx = NULL;
+
             n = 1 + tx_count;
             while (n > 1) {
                 if (n % 2) {
@@ -354,13 +394,28 @@ int main()
             unsigned char best[32];
             memset(best, 255, 32);
 
+            char strMerkleRoot[128];
+            //reverse merkle root...why?  because bitcoin
+            unsigned char revMerkleRoot[32];
+            memcpy(revMerkleRoot, merkle_tree[0], 32);
+            for (int i = 0; i < 16; i++) {
+                unsigned char tmp = revMerkleRoot[i];
+                revMerkleRoot[i] = revMerkleRoot[31 - i];
+                revMerkleRoot[31 - i] = tmp;
+            }
+            bin2hex(strMerkleRoot, revMerkleRoot, 32);
+            
             
             bool found = false;
             CSHA256 hash;
             while (!found) {
+                /*
                 hash.Write((const unsigned char*)&header, 80);
                 hash.Finalize(hashA);
                 hash.Reset();
+                */
+                std::string result = hashFunction->programs[0]->execute(header, prevBlockHash, strMerkleRoot);
+                hex2bin(hashA, result.c_str(), 32);
 
                 bool ok = false;
                 bool done = false;
@@ -388,8 +443,8 @@ int main()
                 if (better)
                     memcpy(best, hashA, 32);
 
-                if (n % 1000000 == 0) {
-                    printf("%d\n", n);
+                if (nonce % 1000 == 0) {
+                    printf("%d\n", nonce);
                     for (int i = 0; i < 32; i++)
                         printf("%02X", best[i]);
                     printf("\n");
@@ -434,10 +489,7 @@ int main()
 
             std::string postBlockRequest = std::string("{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"") + strBlock + std::string("\"] }");
 
-            //printf("\n\n%s\n", postBlockRequest.c_str());
-
             chunk.size = 0;
-
             
             curl_easy_setopt(curl, CURLOPT_URL, "http://192.168.1.62:6433");
             curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
