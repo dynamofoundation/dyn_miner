@@ -9,6 +9,8 @@
 #include "Common.h"
 #include "dynhash.h"
 
+#include "process.h"
+
 
 void diff_to_target(uint32_t* target, double diff);
 void bin2hex(char* s, const unsigned char* p, size_t len);
@@ -49,6 +51,92 @@ static size_t WriteMemoryCallback(void* contents, size_t size, size_t nmemb, voi
 }
 
 
+bool globalFound;
+CDynHash* hashFunction;
+std::string prevBlockHash;
+char strMerkleRoot[128];
+std::string strNativeTarget;
+uint32_t iNativeTarget[8];
+unsigned char nativeTarget[32];
+unsigned char nativeData[80];
+
+
+void doHash(void* result) {
+
+
+    time_t t;
+    time(&t);
+    srand(t);
+
+    uint32_t nonce = rand() * t * GetTickCount();
+
+    unsigned char header[80];
+    memcpy(header, nativeData, 80);
+    memcpy(header + 76, &nonce, 4);
+
+    unsigned char hashA[32];
+    unsigned char best[32];
+    memset(best, 255, 32);
+
+
+    bool found = false;
+    CSHA256 hash;
+    while ((!found) && (!globalFound)) {
+        std::string result = hashFunction->programs[0]->execute(header, prevBlockHash, strMerkleRoot);
+        hex2bin(hashA, result.c_str(), 32);
+
+        bool ok = false;
+        bool done = false;
+        int i = 0;
+        while ((!ok) && (i < 32) && (!done))
+            if (hashA[i] < nativeTarget[i])
+                ok = true;
+            else if (hashA[i] == nativeTarget[i])
+                i++;
+            else
+                done = true;
+
+
+        bool better = false;
+        done = false;
+        i = 0;
+        while ((!better) && (i < 32) && (!done))
+            if (hashA[i] < best[i])
+                better = true;
+            else if (hashA[i] == best[i])
+                i++;
+            else
+                done = true;
+
+        if (better)
+            memcpy(best, hashA, 32);
+
+        if (nonce % 10000 == 0) {
+            printf("%d\n", nonce);
+            for (int i = 0; i < 32; i++)
+                printf("%02X", best[i]);
+            printf("\n");
+            for (int i = 0; i < 32; i++)
+                printf("%02X", nativeTarget[i]);
+            printf("\n\n");
+        }
+
+        if (ok)
+            found = true;
+        else {
+            nonce++;
+            memcpy(header + 76, &nonce, 4);
+        }
+
+    }
+
+    if (found)
+        memcpy(result, header, 80);
+
+    globalFound = true;
+
+}
+
 
 
 int main()
@@ -63,7 +151,7 @@ int main()
     chunk.memory = (char*)malloc(1);
     chunk.size = 0;
 
-    CDynHash* hashFunction = new CDynHash();
+    hashFunction = new CDynHash();
 
     CURL* curl;
     CURLcode res;
@@ -150,12 +238,12 @@ int main()
 
             uint32_t height = result["result"]["height"];
             uint32_t version = result["result"]["version"];
-            std::string prevBlockHash = result["result"]["previousblockhash"];
+            prevBlockHash = result["result"]["previousblockhash"];
             int64_t coinbaseVal = result["result"]["coinbasevalue"];
             uint32_t curtime = result["result"]["curtime"];
             std::string difficultyBits = result["result"]["bits"];
             json jtransactions = result["result"]["transactions"];
-            std::string strNativeTarget = result["result"]["target"];
+            strNativeTarget = result["result"]["target"];
 
 
             
@@ -351,7 +439,6 @@ int main()
 
             //set up variables for the miner
 
-            unsigned char nativeData[80];
             unsigned char cVersion[4];
             memcpy(cVersion, &version, 4);
             for (int i = 0; i < 4; i++)
@@ -375,26 +462,16 @@ int main()
             memcpy(nativeData + 74, &cBits[1], 1);
             memcpy(nativeData + 75, &cBits[0], 1);
 
-            uint32_t iNativeTarget[8];
             hex2bin((unsigned char*)&iNativeTarget, strNativeTarget.c_str(), 32);
 
-            unsigned char nativeTarget[32];
             memcpy(&nativeTarget, &iNativeTarget, 32);
 
             //solve block
 
-            uint32_t nonce = 0;
-
-            unsigned char header[80];
-            memcpy(header, nativeData, 80);
-            memcpy(header + 76, &nonce, 4);
 
 
-            unsigned char hashA[32];
-            unsigned char best[32];
-            memset(best, 255, 32);
 
-            char strMerkleRoot[128];
+            
             //reverse merkle root...why?  because bitcoin
             unsigned char revMerkleRoot[32];
             memcpy(revMerkleRoot, merkle_tree[0], 32);
@@ -405,63 +482,19 @@ int main()
             }
             bin2hex(strMerkleRoot, revMerkleRoot, 32);
             
-            
-            bool found = false;
-            CSHA256 hash;
-            while (!found) {
-                /*
-                hash.Write((const unsigned char*)&header, 80);
-                hash.Finalize(hashA);
-                hash.Reset();
-                */
-                std::string result = hashFunction->programs[0]->execute(header, prevBlockHash, strMerkleRoot);
-                hex2bin(hashA, result.c_str(), 32);
+            unsigned char header[80];
 
-                bool ok = false;
-                bool done = false;
-                int i = 0;
-                while ((!ok) && (i < 32) && (!done))
-                    if (hashA[i] < nativeTarget[i])
-                        ok = true;
-                    else if (hashA[i] == nativeTarget[i])
-                        i++;
-                    else
-                        done = true;
+            globalFound = false;
 
-
-                bool better = false;
-                done = false;
-                i = 0;
-                while ((!better) && (i < 32) && (!done))
-                    if (hashA[i] < best[i])
-                        better = true;
-                    else if (hashA[i] == best[i])
-                        i++;
-                    else
-                        done = true;
-
-                if (better)
-                    memcpy(best, hashA, 32);
-
-                if (nonce % 1000 == 0) {
-                    printf("%d\n", nonce);
-                    for (int i = 0; i < 32; i++)
-                        printf("%02X", best[i]);
-                    printf("\n");
-                    for (int i = 0; i < 32; i++)
-                        printf("%02X", nativeTarget[i]);
-                    printf("\n\n");
-                }
-
-                if (ok)
-                    found = true;
-                else {
-                    nonce++;
-                    memcpy(header + 76, &nonce, 4);
-                }
-
+            for (int i = 0; i < 10; i++) {
+                _beginthread(doHash, 0, header);
+                Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
             }
-            
+
+            while (!globalFound)
+                Sleep(10);
+
+   
 
             
             //submit solution
