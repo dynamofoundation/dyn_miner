@@ -158,13 +158,16 @@ int main()
 
     curl_global_init(CURL_GLOBAL_ALL);
 
+    //const char* strRPC_URL = "http://192.168.1.62:6433";
+    const char* strRPC_URL = "http://testnet1.dynamocoin.org:6433";
+
     curl = curl_easy_init();
     if (curl) {
         std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
 
         chunk.size = 0;
 
-        curl_easy_setopt(curl, CURLOPT_URL, "http://192.168.1.62:6433");
+        curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL );
         curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
         curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
         curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
@@ -192,7 +195,7 @@ int main()
         json j = "{ \"id\": 0, \"method\" : \"getblocktemplate\", \"params\" : [{ \"rules\": [\"segwit\"] }] }"_json;
         std::string jData = j.dump();
 
-        curl_easy_setopt(curl, CURLOPT_URL,"http://192.168.1.62:6433");
+        curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
         curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
         curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
         curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
@@ -214,7 +217,7 @@ int main()
 
             chunk.size = 0;
 
-            curl_easy_setopt(curl, CURLOPT_URL, "http://192.168.1.62:6433");
+            curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL );
             curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
             curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
             curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
@@ -302,7 +305,7 @@ int main()
             cbtx_size += pk_script_size;
 
             //coinbase to developer
-            int64_t devFee = 100000000;
+            int64_t devFee = 5000000;
             le32enc((uint32_t*)(cbtx + cbtx_size), (uint32_t)devFee);          //tx out amount
             le32enc((uint32_t*)(cbtx + cbtx_size + 4), devFee >> 32);
             cbtx_size += 8;
@@ -311,7 +314,9 @@ int main()
             cbtx_size += pk_script_size_dev;
 
 
-
+            //execute all contract calls
+            //create new coinbase transactions
+            //update contract state and storage
 
             
                 tree_entry *wtree = (tree_entry*)malloc((tx_count + 2) * 32);
@@ -524,7 +529,7 @@ int main()
 
             chunk.size = 0;
             
-            curl_easy_setopt(curl, CURLOPT_URL, "http://192.168.1.62:6433");
+            curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL );
             curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
             curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
             curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
@@ -590,7 +595,6 @@ void bin2hex(char* s, const unsigned char* p, size_t len)
     int i;
     for (i = 0; i < len; i++)
         sprintf_s(s + (i * 2), 3,  "%02x", (unsigned int)p[i]);
-
 
 }
 

@@ -142,10 +142,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="arith_uint256.cpp" />
     <ClCompile Include="dynhash.cpp" />
     <ClCompile Include="dynprogram.cpp" />
     <ClCompile Include="dyn_miner.cpp" />
     <ClCompile Include="sha256.cpp" />
+    <ClCompile Include="uint256.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
