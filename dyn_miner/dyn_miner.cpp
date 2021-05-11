@@ -139,8 +139,19 @@ void doHash(void* result) {
 
 
 
-int main()
+int main(int argc, char * argv[])
 {
+
+    if (argc != 5) {
+        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address>\n\n");
+        printf("EXAMPLE:\n    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc\n\n");
+        return -1;
+    }
+
+    char* strRPC_URL = argv[1];
+    char* RPCUser = argv[2];
+    char* RPCPassword = argv[3];
+    char* minerPayToAddr = argv[4];
 
 
     using json = nlohmann::json;
@@ -159,68 +170,20 @@ int main()
     curl_global_init(CURL_GLOBAL_ALL);
 
     //const char* strRPC_URL = "http://192.168.1.62:6433";
-    const char* strRPC_URL = "http://testnet1.dynamocoin.org:6433";
+    //const char* strRPC_URL = "http://testnet1.dynamocoin.org:6433";
 
-    curl = curl_easy_init();
-    if (curl) {
-        std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
-
-        chunk.size = 0;
-
-        curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL );
-        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-        curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
-        curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
-
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, getHashRequest.c_str());
-
-        res = curl_easy_perform(curl);
-
-        if (res != CURLE_OK)
-            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-        else {
-            json result = json::parse(chunk.memory);
-            printf("%s\n", result.dump().c_str());
-            int start_time = result["result"][0]["start_time"];
-            std::string program = result["result"][0]["program"];
-            hashFunction->addProgram(start_time, program);
-        }
-
-
-        chunk.size = 0;
-
-        json j = "{ \"id\": 0, \"method\" : \"getblocktemplate\", \"params\" : [{ \"rules\": [\"segwit\"] }] }"_json;
-        std::string jData = j.dump();
-
-        curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
-        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-        curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
-        curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
-
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
-
-        res = curl_easy_perform(curl);
-        if (res != CURLE_OK)
-            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-        else {
-            json result = json::parse(chunk.memory);
-            printf("%s\n", result.dump().c_str());
-
-
+    
+    while (true) {
+        curl = curl_easy_init();
+        if (curl) {
             std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
 
             chunk.size = 0;
 
-            curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL );
+            curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
             curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-            curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
-            curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
+            curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
+            curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
 
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
@@ -234,92 +197,112 @@ int main()
             else {
                 json result = json::parse(chunk.memory);
                 printf("%s\n", result.dump().c_str());
+                int start_time = result["result"][0]["start_time"];
+                std::string program = result["result"][0]["program"];
+                hashFunction->addProgram(start_time, program);
             }
 
 
+            chunk.size = 0;
+
+            json j = "{ \"id\": 0, \"method\" : \"getblocktemplate\", \"params\" : [{ \"rules\": [\"segwit\"] }] }"_json;
+            std::string jData = j.dump();
+
+            curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
+            curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+            curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
+            curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
+
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
+
+            res = curl_easy_perform(curl);
+            if (res != CURLE_OK)
+                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+            else {
+                json result = json::parse(chunk.memory);
+                printf("%s\n", result.dump().c_str());
+
+                uint32_t height = result["result"]["height"];
+                uint32_t version = result["result"]["version"];
+                prevBlockHash = result["result"]["previousblockhash"];
+                int64_t coinbaseVal = result["result"]["coinbasevalue"];
+                uint32_t curtime = result["result"]["curtime"];
+                std::string difficultyBits = result["result"]["bits"];
+                json jtransactions = result["result"]["transactions"];
+                strNativeTarget = result["result"]["target"];
+
+                int tx_size = 0;
+                for (int i = 0; i < jtransactions.size(); i++) {
+                    std::string strTransaction = jtransactions[i]["data"];
+                    tx_size += strlen(strTransaction.c_str()) / 2;
+                }
 
 
-            uint32_t height = result["result"]["height"];
-            uint32_t version = result["result"]["version"];
-            prevBlockHash = result["result"]["previousblockhash"];
-            int64_t coinbaseVal = result["result"]["coinbasevalue"];
-            uint32_t curtime = result["result"]["curtime"];
-            std::string difficultyBits = result["result"]["bits"];
-            json jtransactions = result["result"]["transactions"];
-            strNativeTarget = result["result"]["target"];
 
 
-            
-            int tx_size = 0;
-            for (int i = 0; i < jtransactions.size(); i++) {
-                std::string strTransaction = jtransactions[i]["data"];
-                tx_size += strlen(strTransaction.c_str()) / 2;
-            }
-            
-            
+                int tx_count = jtransactions.size();
+
+                //decode pay to address for miner
+                static unsigned char pk_script[25] = { 0 };
+                std::string payToAddress(minerPayToAddr);
+                int pk_script_size = address_to_script(pk_script, sizeof(pk_script), payToAddress.c_str());
+
+                //decode pay to address for developer
+                static unsigned char pk_script_dev[25] = { 0 };
+                std::string payToAddressDev("dy1q6y6uv9thwl99up2l4pj9q3l4lfuwml6wn5863q");
+                int pk_script_size_dev = address_to_script(pk_script_dev, sizeof(pk_script_dev), payToAddressDev.c_str());
 
 
-            int tx_count = jtransactions.size();
+                //create coinbase transaction
 
-            //decode pay to address for miner
-            static unsigned char pk_script[25] = { 0 };
-            //std::string payToAddress("dy1quu537ptpsgck95fapf6dm73hg73yxdckeemzd5");
-            std::string payToAddress("dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc");            
-            int pk_script_size = address_to_script(pk_script, sizeof(pk_script), payToAddress.c_str());
+                unsigned char cbtx[512];
+                memset(cbtx, 0, 512);
+                le32enc((uint32_t*)cbtx, 1);    //version
+                cbtx[4] = 1;                    //txin count
+                memset(cbtx + 5, 0x00, 32);     //prev txn hash out
+                le32enc((uint32_t*)(cbtx + 37), 0xffffffff);    //prev txn index out
+                int cbtx_size = 43;
 
-            //decode pay to address for developer
-            static unsigned char pk_script_dev[25] = { 0 };
-            std::string payToAddressDev("dy1q6y6uv9thwl99up2l4pj9q3l4lfuwml6wn5863q");
-            int pk_script_size_dev = address_to_script(pk_script_dev, sizeof(pk_script_dev), payToAddressDev.c_str());
+                for (int n = height; n; n >>= 8) {
+                    cbtx[cbtx_size++] = n & 0xff;
+                    if (n < 0x100 && n >= 0x80)
+                        cbtx[cbtx_size++] = 0;
+                }
+                cbtx[42] = cbtx_size - 43;
 
+                cbtx[41] = cbtx_size - 42;      //script signature length
+                le32enc((uint32_t*)(cbtx + cbtx_size), 0xffffffff);         //out sequence
+                cbtx_size += 4;
 
-            //create coinbase transaction
+                cbtx[cbtx_size++] = 3;             //out count - on txout to devfee, one txout to miner, one for witness sighash
 
-            unsigned char cbtx[512];
-            memset(cbtx, 0, 512);
-            le32enc((uint32_t*)cbtx, 1);    //version
-            cbtx[4] = 1;                    //txin count
-            memset(cbtx + 5, 0x00, 32);     //prev txn hash out
-            le32enc((uint32_t*)(cbtx + 37), 0xffffffff);    //prev txn index out
-            int cbtx_size = 43;
+                //coinbase to miner
+                le32enc((uint32_t*)(cbtx + cbtx_size), (uint32_t)coinbaseVal);          //tx out amount
+                le32enc((uint32_t*)(cbtx + cbtx_size + 4), coinbaseVal >> 32);
+                cbtx_size += 8;
+                cbtx[cbtx_size++] = pk_script_size;         //tx out script len
+                memcpy(cbtx + cbtx_size, pk_script, pk_script_size);
+                cbtx_size += pk_script_size;
 
-            for (int n = height; n; n >>= 8) {
-                cbtx[cbtx_size++] = n & 0xff;
-                if (n < 0x100 && n >= 0x80)
-                    cbtx[cbtx_size++] = 0;
-            }
-            cbtx[42] = cbtx_size - 43;
-
-            cbtx[41] = cbtx_size - 42;      //script signature length
-            le32enc((uint32_t*)(cbtx + cbtx_size), 0xffffffff);         //out sequence
-            cbtx_size += 4;
-
-            cbtx[cbtx_size++] =  3;             //out count - on txout to devfee, one txout to miner, one for witness sighash
-
-            //coinbase to miner
-            le32enc((uint32_t*)(cbtx + cbtx_size), (uint32_t)coinbaseVal);          //tx out amount
-            le32enc((uint32_t*)(cbtx + cbtx_size + 4), coinbaseVal >> 32);
-            cbtx_size += 8;
-            cbtx[cbtx_size++] = pk_script_size;         //tx out script len
-            memcpy(cbtx + cbtx_size, pk_script, pk_script_size);
-            cbtx_size += pk_script_size;
-
-            //coinbase to developer
-            int64_t devFee = 5000000;
-            le32enc((uint32_t*)(cbtx + cbtx_size), (uint32_t)devFee);          //tx out amount
-            le32enc((uint32_t*)(cbtx + cbtx_size + 4), devFee >> 32);
-            cbtx_size += 8;
-            cbtx[cbtx_size++] = pk_script_size_dev;         //tx out script len
-            memcpy(cbtx + cbtx_size, pk_script_dev, pk_script_size_dev);
-            cbtx_size += pk_script_size_dev;
+                //coinbase to developer
+                int64_t devFee = 5000000;
+                le32enc((uint32_t*)(cbtx + cbtx_size), (uint32_t)devFee);          //tx out amount
+                le32enc((uint32_t*)(cbtx + cbtx_size + 4), devFee >> 32);
+                cbtx_size += 8;
+                cbtx[cbtx_size++] = pk_script_size_dev;         //tx out script len
+                memcpy(cbtx + cbtx_size, pk_script_dev, pk_script_size_dev);
+                cbtx_size += pk_script_size_dev;
 
 
-            //execute all contract calls
-            //create new coinbase transactions
-            //update contract state and storage
+                //execute all contract calls
+                //create new coinbase transactions
+                //update contract state and storage
 
-            
-                tree_entry *wtree = (tree_entry*)malloc((tx_count + 2) * 32);
+
+                tree_entry* wtree = (tree_entry*)malloc((tx_count + 2) * 32);
                 memset(wtree, 0, (tx_count + 2) * 32);
 
                 memset(cbtx + cbtx_size, 0, 8);                     //value of segwit txout
@@ -349,7 +332,7 @@ int main()
                     memrev(wtree[1 + i], 32);
                 }
                 */
-                
+
 
                 int n = tx_count + 1;
                 while (n > 1) {
@@ -369,188 +352,190 @@ int main()
 
 
 
-            le32enc((uint32_t*)(cbtx + cbtx_size), 0);      //  tx out lock time
-            cbtx_size += 4;
-            
-            unsigned char txc_vi[9];
-            char* transactionString;
+                le32enc((uint32_t*)(cbtx + cbtx_size), 0);      //  tx out lock time
+                cbtx_size += 4;
 
-            n = varint_encode(txc_vi, 1 + tx_count);
-            transactionString = (char*)malloc(2 * (n + cbtx_size + tx_size) + 2);
-            memset(transactionString, 0, 2 * (n + cbtx_size + tx_size) + 2);
-            bin2hex(transactionString, txc_vi, n);
-            bin2hex(transactionString + 2 * n, cbtx, cbtx_size);
-            char* txs_end = transactionString + strlen(transactionString);
+                unsigned char txc_vi[9];
+                char* transactionString;
+
+                n = varint_encode(txc_vi, 1 + tx_count);
+                transactionString = (char*)malloc(2 * (n + cbtx_size + tx_size) + 2);
+                memset(transactionString, 0, 2 * (n + cbtx_size + tx_size) + 2);
+                bin2hex(transactionString, txc_vi, n);
+                bin2hex(transactionString + 2 * n, cbtx, cbtx_size);
+                char* txs_end = transactionString + strlen(transactionString);
 
 
-            //create merkle root
+                //create merkle root
 
-            tree_entry *merkle_tree = (tree_entry*)malloc(32 * ((1 + tx_count + 1) & ~1));
-            //size_t tx_buf_size = 32 * 1024;
-            //unsigned char *tx = (unsigned char*)malloc(tx_buf_size);
-            sha256d(merkle_tree[0], cbtx, cbtx_size);
-            
-            for (int i = 0; i < tx_count; i++) {
-                std::string tx_hex = jtransactions[i]["data"];
-                const size_t tx_hex_len = tx_hex.length();
-                const int tx_size = tx_hex_len / 2;
-                std::string txid = jtransactions[i]["txid"];
-                hex2bin(merkle_tree[1 + i], txid.c_str(), 32);
-                memrev(merkle_tree[1 + i], 32);
-                memcpy(txs_end, tx_hex.c_str(), tx_hex.length() );
-                txs_end += tx_hex_len;
-            }
+                tree_entry* merkle_tree = (tree_entry*)malloc(32 * ((1 + tx_count + 1) & ~1));
+                //size_t tx_buf_size = 32 * 1024;
+                //unsigned char *tx = (unsigned char*)malloc(tx_buf_size);
+                sha256d(merkle_tree[0], cbtx, cbtx_size);
 
-            //free(tx); 
-            //tx = NULL;
-
-            n = 1 + tx_count;
-            while (n > 1) {
-                if (n % 2) {
-                    memcpy(merkle_tree[n], merkle_tree[n - 1], 32);
-                    ++n;
+                for (int i = 0; i < tx_count; i++) {
+                    std::string tx_hex = jtransactions[i]["data"];
+                    const size_t tx_hex_len = tx_hex.length();
+                    const int tx_size = tx_hex_len / 2;
+                    std::string txid = jtransactions[i]["txid"];
+                    hex2bin(merkle_tree[1 + i], txid.c_str(), 32);
+                    memrev(merkle_tree[1 + i], 32);
+                    memcpy(txs_end, tx_hex.c_str(), tx_hex.length());
+                    txs_end += tx_hex_len;
                 }
-                n /= 2;
-                for (int i = 0; i < n; i++)
-                    sha256d(merkle_tree[i], merkle_tree[2 * i], 64);
+
+                //free(tx); 
+                //tx = NULL;
+
+                n = 1 + tx_count;
+                while (n > 1) {
+                    if (n % 2) {
+                        memcpy(merkle_tree[n], merkle_tree[n - 1], 32);
+                        ++n;
+                    }
+                    n /= 2;
+                    for (int i = 0; i < n; i++)
+                        sha256d(merkle_tree[i], merkle_tree[2 * i], 64);
+                }
+
+
+                //assemble header
+
+                uint32_t headerData[32];
+                version = 0x04000000;
+                headerData[0] = swab32(version);
+
+                uint32_t prevhash[8];
+                hex2bin((unsigned char*)&prevhash, prevBlockHash.c_str(), 32);
+                for (int i = 0; i < 8; i++)
+                    headerData[8 - i] = le32dec(prevhash + i);
+
+                for (int i = 0; i < 8; i++)
+                    headerData[9 + i] = be32dec((uint32_t*)merkle_tree[0] + i);
+
+                headerData[17] = swab32(curtime);
+
+                uint32_t bits;
+                hex2bin((unsigned char*)&bits, difficultyBits.c_str(), 4);
+                headerData[18] = le32dec(&bits);
+
+                memset(headerData + 19, 0x00, 52);
+
+                headerData[20] = 0x80000000;
+                headerData[31] = 0x00000280;
+
+
+                //set up variables for the miner
+
+                unsigned char cVersion[4];
+                memcpy(cVersion, &version, 4);
+                for (int i = 0; i < 4; i++)
+                    cVersion[i] = ((cVersion[i] & 0x0F) << 4) + (cVersion[i] >> 4);
+
+                memcpy(nativeData, &cVersion[3], 1);
+                memcpy(nativeData + 1, &cVersion[2], 1);
+                memcpy(nativeData + 2, &cVersion[1], 1);
+                memcpy(nativeData + 3, &cVersion[0], 1);
+
+                memcpy(nativeData + 4, prevhash, 32);
+
+                memcpy(nativeData + 36, merkle_tree[0], 32);
+
+                memcpy(nativeData + 68, &curtime, 4);
+
+                unsigned char cBits[4];
+                memcpy(cBits, &bits, 4);
+                memcpy(nativeData + 72, &cBits[3], 1);
+                memcpy(nativeData + 73, &cBits[2], 1);
+                memcpy(nativeData + 74, &cBits[1], 1);
+                memcpy(nativeData + 75, &cBits[0], 1);
+
+                hex2bin((unsigned char*)&iNativeTarget, strNativeTarget.c_str(), 32);
+
+                memcpy(&nativeTarget, &iNativeTarget, 32);
+
+                //solve block
+
+
+
+
+
+                //reverse merkle root...why?  because bitcoin
+                unsigned char revMerkleRoot[32];
+                memcpy(revMerkleRoot, merkle_tree[0], 32);
+                for (int i = 0; i < 16; i++) {
+                    unsigned char tmp = revMerkleRoot[i];
+                    revMerkleRoot[i] = revMerkleRoot[31 - i];
+                    revMerkleRoot[31 - i] = tmp;
+                }
+                bin2hex(strMerkleRoot, revMerkleRoot, 32);
+
+                unsigned char header[80];
+
+                globalFound = false;
+
+                for (int i = 0; i < 2; i++) {
+                    _beginthread(doHash, 0, header);
+                    Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
+                }
+
+                while (!globalFound)
+                    Sleep(10);
+
+
+
+
+                //submit solution
+
+
+
+                //reverse previous hash byte order
+                //prev hash is positions 4 to 36 in header
+                for (int i = 0; i < 16; i++) {
+                    unsigned char swap = header[4 + i];
+                    header[4 + i] = header[35 - i];
+                    header[35 - i] = swap;
+                }
+
+
+
+
+                std::string strBlock;
+
+                char hexHeader[256];
+                bin2hex(hexHeader, header, 80);
+                strBlock += std::string(hexHeader);
+                strBlock += transactionString;
+
+
+                std::string postBlockRequest = std::string("{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"") + strBlock + std::string("\"] }");
+
+                chunk.size = 0;
+
+                curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
+                curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+                curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
+                curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
+
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBlockRequest.c_str());
+
+                res = curl_easy_perform(curl);
+
+                if (res != CURLE_OK)
+                    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                else {
+                    json result = json::parse(chunk.memory);
+                    printf("%s\n", result.dump().c_str());
+                }
+
             }
 
-
-            //assemble header
-            
-            uint32_t headerData[32];
-            version = 0x04000000;
-            headerData[0] = swab32(version);
-
-            uint32_t prevhash[8];
-            hex2bin((unsigned char*)&prevhash, prevBlockHash.c_str(), 32);
-            for (int i = 0; i < 8; i++)
-                headerData[8 - i] = le32dec(prevhash + i);
-
-            for (int i = 0; i < 8; i++)
-                headerData[9 + i] = be32dec((uint32_t*)merkle_tree[0] + i);
-
-            headerData[17] = swab32(curtime);
-
-            uint32_t bits;
-            hex2bin((unsigned char*)&bits, difficultyBits.c_str(), 4);
-            headerData[18] = le32dec(&bits);
-
-            memset(headerData + 19, 0x00, 52);
-
-            headerData[20] = 0x80000000;
-            headerData[31] = 0x00000280;
-
-
-            //set up variables for the miner
-
-            unsigned char cVersion[4];
-            memcpy(cVersion, &version, 4);
-            for (int i = 0; i < 4; i++)
-                cVersion[i] = ((cVersion[i] & 0x0F) << 4) + (cVersion[i] >> 4);
-
-            memcpy(nativeData, &cVersion[3], 1);
-            memcpy(nativeData + 1, &cVersion[2], 1);
-            memcpy(nativeData + 2, &cVersion[1], 1);
-            memcpy(nativeData + 3, &cVersion[0], 1);
-
-            memcpy(nativeData + 4, prevhash, 32);
-
-            memcpy(nativeData + 36, merkle_tree[0], 32);
-
-            memcpy(nativeData + 68, &curtime, 4);
-
-            unsigned char cBits[4];
-            memcpy(cBits, &bits, 4);
-            memcpy(nativeData + 72, &cBits[3], 1);
-            memcpy(nativeData + 73, &cBits[2], 1);
-            memcpy(nativeData + 74, &cBits[1], 1);
-            memcpy(nativeData + 75, &cBits[0], 1);
-
-            hex2bin((unsigned char*)&iNativeTarget, strNativeTarget.c_str(), 32);
-
-            memcpy(&nativeTarget, &iNativeTarget, 32);
-
-            //solve block
-
-
-
-
-            
-            //reverse merkle root...why?  because bitcoin
-            unsigned char revMerkleRoot[32];
-            memcpy(revMerkleRoot, merkle_tree[0], 32);
-            for (int i = 0; i < 16; i++) {
-                unsigned char tmp = revMerkleRoot[i];
-                revMerkleRoot[i] = revMerkleRoot[31 - i];
-                revMerkleRoot[31 - i] = tmp;
-            }
-            bin2hex(strMerkleRoot, revMerkleRoot, 32);
-            
-            unsigned char header[80];
-
-            globalFound = false;
-
-            for (int i = 0; i < 10; i++) {
-                _beginthread(doHash, 0, header);
-                Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
-            }
-
-            while (!globalFound)
-                Sleep(10);
-
-   
-
-            
-            //submit solution
-
-
-            
-            //reverse previous hash byte order
-            //prev hash is positions 4 to 36 in header
-            for (int i = 0; i < 16; i++) {
-                unsigned char swap = header[4 + i];
-                header[4 + i] = header[35 - i];
-                header[35 - i] = swap;
-            }
-            
-            
-
-
-            std::string strBlock;
-
-            char hexHeader[256];
-            bin2hex(hexHeader, header, 80);
-            strBlock += std::string(hexHeader);
-            strBlock += transactionString;
-
-
-            std::string postBlockRequest = std::string("{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"") + strBlock + std::string("\"] }");
-
-            chunk.size = 0;
-            
-            curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL );
-            curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-            curl_easy_setopt(curl, CURLOPT_USERNAME, "user");
-            curl_easy_setopt(curl, CURLOPT_PASSWORD, "123456");
-
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-
-            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBlockRequest.c_str());
-
-            res = curl_easy_perform(curl);
-
-            if (res != CURLE_OK)
-                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-            else {
-                json result = json::parse(chunk.memory);
-                printf("%s\n", result.dump().c_str());
-            }
+            curl_easy_cleanup(curl);
 
         }
-
-        curl_easy_cleanup(curl);
     }
 
     free(chunk.memory);
