@@ -80,7 +80,7 @@ void doHash(void* result) {
 
 
     bool found = false;
-    CSHA256 hash;
+    //CSHA256 hash;
     while ((!found) && (!globalFound)) {
         std::string result = hashFunction->programs[0]->execute(header, prevBlockHash, strMerkleRoot);
         hex2bin(hashA, result.c_str(), 32);
@@ -141,6 +141,35 @@ void doHash(void* result) {
 
 int main(int argc, char * argv[])
 {
+
+    uint32_t num1[8];
+    uint32_t num2[8];
+
+    num1[0] = 0xfe1efefe;
+    num1[1] = 0xfef2fefe;
+    num1[2] = 0xfef3fefe;
+    num1[3] = 0xfefe4efe;
+    num1[4] = 0xfefe5efe;
+    num1[5] = 0xfefe6efe;
+    num1[6] = 0xfefef7fe;
+    num1[7] = 0xfefefe8e;
+
+    num2[0] = 0xadadadad;
+    num2[1] = 0x11111111;
+    num2[2] = 0x22222222;
+    num2[3] = 0x9999ff99;
+    num2[4] = 0x44551122;
+    num2[5] = 0x00000001;
+    num2[6] = 0x78787878;
+    num2[7] = 0x91919191;
+
+
+    for (int i = 0; i < 8; i++)
+        num1[i] ^= num2[i];
+
+    for (int i = 0; i < 8; i++)
+        printf("%02x", num1[i]);
+
 
     if (argc != 5) {
         printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address>\n\n");
