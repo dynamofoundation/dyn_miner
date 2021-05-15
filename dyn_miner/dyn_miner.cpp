@@ -89,6 +89,7 @@ void doHash(void* result) {
     time_t start;
     time(&start);
 
+    nonce = 0;
 
     bool found = false;
     //CSHA256 hash;
