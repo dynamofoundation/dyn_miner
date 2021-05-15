@@ -249,7 +249,7 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
     returnVal = clGetDeviceInfo(device_id, CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
     
 
-
+    computeUnits = 1000;
 
     //Read the kernel source
     FILE* kernelSourceFile;
@@ -356,9 +356,6 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
     memset(buffScratch, 0, scratchBuffSize);
     returnVal = clEnqueueWriteBuffer(command_queue, clGPUScratchBuffer, CL_TRUE, 0, scratchBuffSize, buffScratch, 0, NULL, NULL);
 
-    cl_mem clGPUTargetBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, 32, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 7, sizeof(clGPUTargetBuffer), (void*)&clGPUTargetBuffer);
-    returnVal = clEnqueueWriteBuffer(command_queue, clGPUTargetBuffer, CL_TRUE, 0, 32, nativeTarget, 0, NULL, NULL);
 
 
     /////////////////////////////////////////////////
@@ -373,7 +370,7 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
     time_t start;
     time(&start);
     
-    for (int nonce = 0; nonce < 100000; nonce += computeUnits) {
+    for (int nonce = 0; nonce < 1000000; nonce += computeUnits) {
 
         for (int i = 0; i < computeUnits; i++)
             memcpy(buffHeader + (i * 80), blockHeader, 80);
@@ -391,12 +388,12 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
 
         returnVal = clEnqueueReadBuffer(command_queue, clGPUHashResultBuffer, CL_TRUE, 0, hashResultSize, buffHashResult, 0, NULL, NULL);
 
-        if (nonce % (computeUnits * 100) == 0) {
+        //if (nonce % (computeUnits * 10) == 0) {
             time_t current;
             time(&current);
             long long diff = current - start;
             printf("%d %lld %6.2f\n", nonce, diff, (float)nonce/float(diff));
-        }
+        //}
 
     }
     /*

@@ -80,11 +80,11 @@ void doHash(void* result) {
     memset(best, 255, 32);
 
 
-    /*
+    
     std::string x = hashFunction->programs[0]->execute(header, prevBlockHash, strMerkleRoot);
 
     hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget);
-    */
+    
 
     time_t start;
     time(&start);
