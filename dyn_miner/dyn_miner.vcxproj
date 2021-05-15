@@ -150,6 +150,7 @@
     <ClCompile Include="uint256.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="dyn_miner.cl" />
     <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -36,5 +36,8 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="dyn_miner.cl">
+      <Filter>Source Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

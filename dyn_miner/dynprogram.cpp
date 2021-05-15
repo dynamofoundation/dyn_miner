@@ -9,9 +9,22 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
 
     uint32_t iResult[8];
 
+    /*
+    uint32_t sum = 0;
+    for (int i = 0; i < 80; i++)
+        sum += blockHeader[i];
+    printf("sum = %d\n", sum);
+    */
+
     ctx.Write(blockHeader, 80);
     ctx.Finalize((unsigned char*) iResult);
 
+    /*
+    printf("first sha result  ");
+    for (int i = 0; i < 8; i++)
+        printf("%08x", iResult[i]);
+    printf("\n\n");
+    */
 
     int line_ptr = 0;       //program execution line pointer
     int loop_counter = 0;   //counter for loop execution
@@ -44,6 +57,7 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
                 for (int i = 0; i < loop_counter; i++) {
                     if (tokens[0] == "SHA2") {
                         unsigned char output[32];
+                        ctx.Reset();
                         ctx.Write((unsigned char*)iResult, 32);
                         ctx.Finalize(output);
                         memcpy(iResult, output, 32);
@@ -54,6 +68,7 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
             else {                         //just a single run
                 if (tokens[0] == "SHA2") {
                     unsigned char output[32];
+                    ctx.Reset();
                     ctx.Write((unsigned char*)iResult, 32);
                     ctx.Finalize(output);
                     memcpy(iResult, output, 32);
@@ -70,6 +85,7 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
             for (int i = 0; i < memory_size; i++) {
                 if (tokens[1] == "SHA2") {
                     unsigned char output[32];
+                    ctx.Reset();
                     ctx.Write((unsigned char*)iResult, 32);
                     ctx.Finalize(output);
                     memcpy(iResult, output, 32);
@@ -125,6 +141,15 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
             }
         }
 
+        
+        /*
+        printf("%02d  ", line_ptr);
+        for (int i = 0; i < 8; i++)
+            printf("%08x", iResult[i]);
+        printf("\n");
+        */
+        
+
         line_ptr++;
 
 
@@ -179,7 +204,7 @@ std::string CDynProgram::makeHex(unsigned char* in, int len)
 
 
 
-std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot) {
+std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget) {
 
 
 
@@ -192,35 +217,204 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
 
 
     uint32_t largestMemgen = 0;
-    unsigned char* byteCode = executeGPUAssembleByteCode(&largestMemgen);
+    uint32_t byteCodeLen = 0;
+    uint32_t* byteCode = executeGPUAssembleByteCode(&largestMemgen, prevBlockHash, merkleRoot, &byteCodeLen);
+
+
+    cl_int returnVal;
+    cl_platform_id platform_id = NULL;
+    cl_device_id device_id = NULL;
+    cl_uint ret_num_devices;
+    cl_uint ret_num_platforms;
+    cl_context context;
+
+    //Initialize context
+    returnVal = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
+    returnVal = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
+    context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &returnVal);
+
+
+    size_t sizeRet;
+    cl_ulong globalMem;
+    cl_ulong localMem;
+    cl_uint computeUnits;
+    size_t workGroups;
+    cl_bool littleEndian;
+
+    //Get some device capabilities
+    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
+    
+
+
+
+    //Read the kernel source
+    FILE* kernelSourceFile;
+
+    kernelSourceFile = fopen("C:\\Users\\user\\source\\repos\\dyn_miner\\dyn_miner\\dyn_miner.cl", "r");
+    if (!kernelSourceFile) {
+        fprintf(stderr, "Failed to load kernel.\n");
+        return "";
+    }
+    fseek(kernelSourceFile, 0, SEEK_END);
+    size_t sourceFileLen = ftell(kernelSourceFile)+1;
+    char *kernelSource = (char*)malloc(sourceFileLen);
+    memset(kernelSource, 0, sourceFileLen);
+    fseek(kernelSourceFile, 0, SEEK_SET);
+    fread(kernelSource, 1, sourceFileLen, kernelSourceFile);
+    fclose(kernelSourceFile);
+
+
+    cl_program program;
+    cl_kernel kernel;
+    cl_command_queue command_queue;
+
+    //Create kernel program
+    program = clCreateProgramWithSource(context, 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
+    returnVal = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+
+    if (returnVal == CL_BUILD_PROGRAM_FAILURE) {
+        // Determine the size of the log
+        size_t log_size;
+        clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+
+        // Allocate memory for the log
+        char* log = (char*)malloc(log_size);
+
+        // Get the log
+        clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+
+        // Print the log
+        printf("\n\n%s\n", log);
+    }
+
+    kernel = clCreateKernel(program, "dyn_hash", &returnVal);
+    command_queue = clCreateCommandQueueWithProperties(context, device_id, NULL, &returnVal);
+
+
+    //Calculate buffer sizes - mempool, hash result buffer, done flag
+    uint32_t memgenBytes = largestMemgen * 32;
+    uint32_t globalMempoolSize = memgenBytes * computeUnits;
+    //TODO - make sure this is less than globalMem
 
 
 
 
-
-    //initial input is SHA256 of header data
-
-    CSHA256 ctx;
-
-    uint32_t iResult[8];
-
-    ctx.Write(blockHeader, 80);
-    ctx.Finalize((unsigned char*)iResult);
+    //Allocate program source buffer and load
+    cl_mem clGPUProgramBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, byteCodeLen, NULL, &returnVal);
+    returnVal = clSetKernelArg(kernel, 0, sizeof(clGPUProgramBuffer), (void*)&clGPUProgramBuffer);
+    returnVal = clEnqueueWriteBuffer(command_queue, clGPUProgramBuffer, CL_TRUE, 0, byteCodeLen, byteCode, 0, NULL, NULL);
 
 
+    //Allocate global memory buffer and zero
+    cl_mem clGPUMemGenBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, globalMempoolSize, NULL, &returnVal);
+    returnVal = clSetKernelArg(kernel, 1, sizeof(clGPUMemGenBuffer), (void*)&clGPUMemGenBuffer);
+    unsigned char* buffMemGen = (unsigned char*)malloc(globalMempoolSize);
+    memset(buffMemGen, 0, globalMempoolSize);
+    returnVal = clEnqueueWriteBuffer(command_queue, clGPUMemGenBuffer, CL_TRUE, 0, globalMempoolSize, buffMemGen, 0, NULL, NULL);
 
 
+    //Size of memgen area - this is the number of 8 uint blocks
+    returnVal = clSetKernelArg(kernel, 2, sizeof(largestMemgen), (void*)&largestMemgen);
 
 
- 
+    //Allocate hash result buffer and zero
+    uint32_t hashResultSize = computeUnits * 32;
+    cl_mem clGPUHashResultBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, hashResultSize, NULL, &returnVal);
+    returnVal = clSetKernelArg(kernel, 3, sizeof(clGPUHashResultBuffer), (void*)&clGPUHashResultBuffer);
+    uint32_t* buffHashResult = (uint32_t*)malloc(hashResultSize);
+    memset(buffHashResult, 0, hashResultSize);
+    returnVal = clEnqueueWriteBuffer(command_queue, clGPUHashResultBuffer, CL_TRUE, 0, hashResultSize, buffHashResult, 0, NULL, NULL);
 
-    return makeHex((unsigned char*)iResult, 32);
+
+    //Allocate found flag buffer and zero
+    uint32_t doneFlagSize = computeUnits;
+    cl_mem clGPUDoneBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, doneFlagSize, NULL, &returnVal);
+    returnVal = clSetKernelArg(kernel, 4, sizeof(clGPUDoneBuffer), (void*)&clGPUDoneBuffer);
+    unsigned char* buffDoneFlag = (unsigned char*)malloc(doneFlagSize);
+    memset(buffDoneFlag, 0, doneFlagSize);
+    returnVal = clEnqueueWriteBuffer(command_queue, clGPUDoneBuffer, CL_TRUE, 0, doneFlagSize, buffDoneFlag, 0, NULL, NULL);
+
+
+    //Allocate header buffer and load
+    uint32_t headerBuffSize = computeUnits * 80;
+    cl_mem clGPUHeaderBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, headerBuffSize, NULL, &returnVal);
+    returnVal = clSetKernelArg(kernel, 5, sizeof(clGPUHeaderBuffer), (void*)&clGPUHeaderBuffer);
+    unsigned char* buffHeader = (unsigned char*)malloc(headerBuffSize);
+    memset(buffHeader, 0, headerBuffSize);
+    returnVal = clEnqueueWriteBuffer(command_queue, clGPUHeaderBuffer, CL_TRUE, 0, headerBuffSize, buffHeader, 0, NULL, NULL);
+
+
+    //Allocate SHA256 scratch buffer - this probably isnt needed if properly optimized
+    uint32_t scratchBuffSize = computeUnits * 32;
+    cl_mem clGPUScratchBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, scratchBuffSize, NULL, &returnVal);
+    returnVal = clSetKernelArg(kernel, 6, sizeof(clGPUScratchBuffer), (void*)&clGPUScratchBuffer);
+    unsigned char* buffScratch = (unsigned char*)malloc(scratchBuffSize);
+    memset(buffScratch, 0, scratchBuffSize);
+    returnVal = clEnqueueWriteBuffer(command_queue, clGPUScratchBuffer, CL_TRUE, 0, scratchBuffSize, buffScratch, 0, NULL, NULL);
+
+    cl_mem clGPUTargetBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, 32, NULL, &returnVal);
+    returnVal = clSetKernelArg(kernel, 7, sizeof(clGPUTargetBuffer), (void*)&clGPUTargetBuffer);
+    returnVal = clEnqueueWriteBuffer(command_queue, clGPUTargetBuffer, CL_TRUE, 0, 32, nativeTarget, 0, NULL, NULL);
+
+
+    /////////////////////////////////////////////////
+
+
+    for (int i = 0; i < computeUnits; i++)
+        memset(buffMemGen + i * memgenBytes, i, 32);
+    returnVal = clEnqueueWriteBuffer(command_queue, clGPUMemGenBuffer, CL_TRUE, 0, globalMempoolSize, buffMemGen, 0, NULL, NULL);
+
+
+    
+    time_t start;
+    time(&start);
+    
+    for (int nonce = 0; nonce < 100000; nonce += computeUnits) {
+
+        for (int i = 0; i < computeUnits; i++)
+            memcpy(buffHeader + (i * 80), blockHeader, 80);
+
+        for (int i = 0; i < computeUnits; i++)
+            memcpy(buffHeader + (i * 80) + 76, &i, 4);
+
+        returnVal = clEnqueueWriteBuffer(command_queue, clGPUHeaderBuffer, CL_TRUE, 0, headerBuffSize, buffHeader, 0, NULL, NULL);
+
+        //size_t globalWorkSize = 1;
+        size_t globalWorkSize = computeUnits;
+        size_t localWorkSize = 1;
+        returnVal = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, &globalWorkSize, &localWorkSize, 0, NULL, NULL);
+        returnVal = clFinish(command_queue);
+
+        returnVal = clEnqueueReadBuffer(command_queue, clGPUHashResultBuffer, CL_TRUE, 0, hashResultSize, buffHashResult, 0, NULL, NULL);
+
+        if (nonce % (computeUnits * 100) == 0) {
+            time_t current;
+            time(&current);
+            long long diff = current - start;
+            printf("%d %lld %6.2f\n", nonce, diff, (float)nonce/float(diff));
+        }
+
+    }
+    /*
+    for (int i = 0; i < computeUnits; i++) {
+        printf("%02d  ", i);
+        for (int j = 0; j < 8; j++)
+            printf("%08x", buffHashResult[i * 8 + j]);
+        printf("\n");
+    }
+    */
+
+    return makeHex((unsigned char*)0, 32);
 }
 
 
 
 
-uint32_t* CDynProgram::executeGPUAssembleByteCode(uint32_t* largestMemgen, std::string prevBlockHash, std::string merkleRoot) {
+uint32_t* CDynProgram::executeGPUAssembleByteCode(uint32_t* largestMemgen, std::string prevBlockHash, std::string merkleRoot, uint32_t* byteCodeLen) {
 
     std::vector<uint32_t> code;
 
@@ -313,10 +507,13 @@ uint32_t* CDynProgram::executeGPUAssembleByteCode(uint32_t* largestMemgen, std::
         line_ptr++;
     }
 
+    code.push_back(HASHOP_END);
 
-    uint32_t* result = (uint32_t)malloc(sizeof(uint32_t) * code.size());
+    uint32_t* result = (uint32_t*)malloc(sizeof(uint32_t) * code.size());
     for (int i = 0; i < code.size(); i++)
         result[i] = code.at(i);
+
+    *byteCodeLen = code.size() * 4;
 
     return result;
 

@@ -8,6 +8,9 @@
 #include <sstream>
 #include <algorithm>
 #include <iterator>
+#include <CL/cl_platform.h>
+#include <CL/cl.h>
+
 
 
 
@@ -19,6 +22,7 @@
 #define HASHOP_MEMADD 5
 #define HASHOP_MEMXOR 6
 #define HASHOP_MEM_SELECT 7
+#define HASHOP_END 8
 
 
 class CDynProgram {
@@ -32,8 +36,8 @@ public:
     std::string execute(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot);
 
 
-    std::string executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot);
-    uint32_t* executeGPUAssembleByteCode(uint32_t* largestMemgen, std::string prevBlockHash, std::string merkleRoot);
+    std::string executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget);
+    uint32_t* executeGPUAssembleByteCode(uint32_t* largestMemgen, std::string prevBlockHash, std::string merkleRoot, uint32_t* byteCodeLen);
 
     std::string getProgramString();
     void parseHex(std::string input, unsigned char* output);
