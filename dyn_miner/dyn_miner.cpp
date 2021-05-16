@@ -61,6 +61,19 @@ unsigned char nativeTarget[32];
 unsigned char nativeData[80];
 
 
+void doGPUHash(void *result) {
+    uint32_t resultNonce;
+
+    unsigned char header[80];
+    memcpy(header, nativeData, 80);
+
+    hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce);
+
+    memcpy(header + 76, &resultNonce, 4);
+    memcpy(result, header, 80);
+}
+
+
 void doHash(void* result) {
 
 
@@ -79,13 +92,6 @@ void doHash(void* result) {
     unsigned char best[32];
     memset(best, 255, 32);
 
-
-    
-    std::string x = hashFunction->programs[0]->execute(header, prevBlockHash, strMerkleRoot);
-    printf("CPU hash %s\n", x.c_str());
-
-    hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget);
-    
 
     time_t start;
     time(&start);
@@ -141,7 +147,7 @@ void doHash(void* result) {
             memcpy(header + 76, &nonce, 4);
         }
 
-        if (nonce % 100 == 0) {
+        if (nonce % 10000 == 0) {
             time_t current;
             time(&current);
             long long diff = current - start;
@@ -163,8 +169,8 @@ int main(int argc, char * argv[])
 {
 
 
-    if (argc != 5) {
-        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address>\n\n");
+    if (argc != 6) {
+        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU>\n\n");
         printf("EXAMPLE:\n    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc\n\n");
         return -1;
     }
@@ -173,7 +179,11 @@ int main(int argc, char * argv[])
     char* RPCUser = argv[2];
     char* RPCPassword = argv[3];
     char* minerPayToAddr = argv[4];
+    char* minerType = argv[5];
 
+    if ((toupper(minerType[0]) != 'C') && (toupper(minerType[0]) != 'G')) {
+        printf("Miner type must be CPU or GPU");
+    }
 
     using json = nlohmann::json;
 
@@ -495,21 +505,24 @@ int main(int argc, char * argv[])
 
                 globalFound = false;
 
-                doHash(header);
 
-                for (int i = 0; i < 2; i++) {
-                    _beginthread(doHash, 0, header);            
-                    Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
+                
+                if (toupper(minerType[0] == 'C')) {
+                    //CPU miner
+                    for (int i = 0; i < 8; i++) {           //TODO - allow as setting or look at number of cores
+                        _beginthread(doHash, 0, header);
+                            Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
+                    }
+
+                    while (!globalFound)
+                        Sleep(10);
                 }
-
-                while (!globalFound)
-                    Sleep(10);
-
-
+                else if (toupper(minerType[0] == 'G')) {
+                    doGPUHash(header);
+                }
 
 
                 //submit solution
-
 
 
                 //reverse previous hash byte order

@@ -185,7 +185,7 @@ std::string CDynProgram::makeHex(unsigned char* in, int len)
 
 
 
-std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget) {
+void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce) {
 
 
 
@@ -238,7 +238,7 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
     kernelSourceFile = fopen("C:\\Users\\user\\source\\repos\\dyn_miner\\dyn_miner\\dyn_miner.cl", "r");
     if (!kernelSourceFile) {
         fprintf(stderr, "Failed to load kernel.\n");
-        return "";
+        return;
     }
     fseek(kernelSourceFile, 0, SEEK_END);
     size_t sourceFileLen = ftell(kernelSourceFile)+1;
@@ -359,6 +359,7 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
     unsigned char best[32];
     memset(best, 255, 32);
 
+    int foundIndex;
 
     while (!found) {
 
@@ -406,7 +407,7 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
                 else
                     done = true;
 
-            if (better)
+            if (better) 
                 memcpy(best, hashA, 32);
 
 
@@ -429,21 +430,16 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
         }
         loops++;
 
-        nonce += computeUnits;
+        if (found) {
+            foundIndex = j;
+        }
+        else
+            nonce += computeUnits;
 
     }
 
-
-    /*
-    for (int i = 0; i < computeUnits; i++) {
-        printf("%02d  ", i);
-        for (int j = 0; j < 8; j++)
-            printf("%08x", buffHashResult[i * 8 + j]);
-        printf("\n");
-    }
-    */
-
-    return makeHex((unsigned char*)0, 32);
+    memcpy(resultNonce, buffHeader + (foundIndex * 80) + 76, 4);
+    
 }
 
 
