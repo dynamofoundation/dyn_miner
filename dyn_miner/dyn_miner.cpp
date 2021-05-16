@@ -82,6 +82,7 @@ void doHash(void* result) {
 
     
     std::string x = hashFunction->programs[0]->execute(header, prevBlockHash, strMerkleRoot);
+    printf("CPU hash %s\n", x.c_str());
 
     hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget);
     

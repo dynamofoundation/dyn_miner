@@ -8,23 +8,11 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
     CSHA256 ctx;
 
     uint32_t iResult[8];
-
-    /*
-    uint32_t sum = 0;
-    for (int i = 0; i < 80; i++)
-        sum += blockHeader[i];
-    printf("sum = %d\n", sum);
-    */
+  
 
     ctx.Write(blockHeader, 80);
     ctx.Finalize((unsigned char*) iResult);
 
-    /*
-    printf("first sha result  ");
-    for (int i = 0; i < 8; i++)
-        printf("%08x", iResult[i]);
-    printf("\n\n");
-    */
 
     int line_ptr = 0;       //program execution line pointer
     int loop_counter = 0;   //counter for loop execution
@@ -141,14 +129,7 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
             }
         }
 
-        
-        /*
-        printf("%02d  ", line_ptr);
-        for (int i = 0; i < 8; i++)
-            printf("%08x", iResult[i]);
-        printf("\n");
-        */
-        
+       
 
         line_ptr++;
 
@@ -329,7 +310,7 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
     memset(buffHashResult, 0, hashResultSize);
     returnVal = clEnqueueWriteBuffer(command_queue, clGPUHashResultBuffer, CL_TRUE, 0, hashResultSize, buffHashResult, 0, NULL, NULL);
 
-
+    /*
     //Allocate found flag buffer and zero
     uint32_t doneFlagSize = computeUnits;
     cl_mem clGPUDoneBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, doneFlagSize, NULL, &returnVal);
@@ -337,50 +318,57 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
     unsigned char* buffDoneFlag = (unsigned char*)malloc(doneFlagSize);
     memset(buffDoneFlag, 0, doneFlagSize);
     returnVal = clEnqueueWriteBuffer(command_queue, clGPUDoneBuffer, CL_TRUE, 0, doneFlagSize, buffDoneFlag, 0, NULL, NULL);
-
+    */
 
     //Allocate header buffer and load
     uint32_t headerBuffSize = computeUnits * 80;
     cl_mem clGPUHeaderBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, headerBuffSize, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 5, sizeof(clGPUHeaderBuffer), (void*)&clGPUHeaderBuffer);
+    returnVal = clSetKernelArg(kernel, 4, sizeof(clGPUHeaderBuffer), (void*)&clGPUHeaderBuffer);
     unsigned char* buffHeader = (unsigned char*)malloc(headerBuffSize);
     memset(buffHeader, 0, headerBuffSize);
     returnVal = clEnqueueWriteBuffer(command_queue, clGPUHeaderBuffer, CL_TRUE, 0, headerBuffSize, buffHeader, 0, NULL, NULL);
 
 
+    
     //Allocate SHA256 scratch buffer - this probably isnt needed if properly optimized
     uint32_t scratchBuffSize = computeUnits * 32;
     cl_mem clGPUScratchBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, scratchBuffSize, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 6, sizeof(clGPUScratchBuffer), (void*)&clGPUScratchBuffer);
+    returnVal = clSetKernelArg(kernel, 5, sizeof(clGPUScratchBuffer), (void*)&clGPUScratchBuffer);
     unsigned char* buffScratch = (unsigned char*)malloc(scratchBuffSize);
     memset(buffScratch, 0, scratchBuffSize);
     returnVal = clEnqueueWriteBuffer(command_queue, clGPUScratchBuffer, CL_TRUE, 0, scratchBuffSize, buffScratch, 0, NULL, NULL);
-
+    
 
 
     /////////////////////////////////////////////////
 
 
-    for (int i = 0; i < computeUnits; i++)
-        memset(buffMemGen + i * memgenBytes, i, 32);
-    returnVal = clEnqueueWriteBuffer(command_queue, clGPUMemGenBuffer, CL_TRUE, 0, globalMempoolSize, buffMemGen, 0, NULL, NULL);
 
 
-    
     time_t start;
     time(&start);
-    
-    for (int nonce = 0; nonce < 1000000; nonce += computeUnits) {
 
-        for (int i = 0; i < computeUnits; i++)
-            memcpy(buffHeader + (i * 80), blockHeader, 80);
+    for (int i = 0; i < computeUnits; i++)
+        memcpy(buffHeader + (i * 80), blockHeader, 80);
 
-        for (int i = 0; i < computeUnits; i++)
-            memcpy(buffHeader + (i * 80) + 76, &i, 4);
+    int loops = 0;
+    uint32_t nonce = 0;
+    bool found = false;
+
+    unsigned char hashA[32];
+    unsigned char best[32];
+    memset(best, 255, 32);
+
+
+    while (!found) {
+
+        for (int i = 0; i < computeUnits; i++) {
+            uint32_t nonce1 = nonce + i;
+            memcpy(buffHeader + (i * 80) + 76, &nonce1, 4);
+        }
 
         returnVal = clEnqueueWriteBuffer(command_queue, clGPUHeaderBuffer, CL_TRUE, 0, headerBuffSize, buffHeader, 0, NULL, NULL);
 
-        //size_t globalWorkSize = 1;
         size_t globalWorkSize = computeUnits;
         size_t localWorkSize = 1;
         returnVal = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, &globalWorkSize, &localWorkSize, 0, NULL, NULL);
@@ -388,14 +376,64 @@ std::string CDynProgram::executeGPU(unsigned char* blockHeader, std::string prev
 
         returnVal = clEnqueueReadBuffer(command_queue, clGPUHashResultBuffer, CL_TRUE, 0, hashResultSize, buffHashResult, 0, NULL, NULL);
 
-        //if (nonce % (computeUnits * 10) == 0) {
+
+
+        int j = 0;
+        while ((!found) && (j < computeUnits)) {
+            bool ok = false;
+            bool done = false;
+            int i = 0;
+
+            memcpy(hashA, &buffHashResult[j * 8], 32);
+
+            while ((!ok) && (i < 32) && (!done))
+                if (hashA[i] < nativeTarget[i])
+                    ok = true;
+                else if (hashA[i] == nativeTarget[i])
+                    i++;
+                else
+                    done = true;
+
+
+            bool better = false;
+            done = false;
+            i = 0;
+            while ((!better) && (i < 32) && (!done))
+                if (hashA[i] < best[i])
+                    better = true;
+                else if (hashA[i] == best[i])
+                    i++;
+                else
+                    done = true;
+
+            if (better)
+                memcpy(best, hashA, 32);
+
+
+            if (ok)
+                found = true;
+            else 
+                j++;
+        }
+
+        if (loops % 10 == 0) {
             time_t current;
             time(&current);
             long long diff = current - start;
-            printf("%d %lld %6.2f\n", nonce, diff, (float)nonce/float(diff));
-        //}
+            printf("%d %lld %6.2f\n", nonce, diff, (float)nonce / float(diff));
+
+            printf("best ");
+            for (int i = 0; i < 32; i++)
+                printf("%02X", best[i]);
+            printf("\n");
+        }
+        loops++;
+
+        nonce += computeUnits;
 
     }
+
+
     /*
     for (int i = 0; i < computeUnits; i++) {
         printf("%02d  ", i);

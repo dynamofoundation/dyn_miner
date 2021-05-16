@@ -50,7 +50,7 @@ uint endianSwap(uint n) {
 }
 
 
-void sha256 (int computeUnitID, uint ulen,  unsigned char *plain_key,  __global uint *digestOut) {
+void sha256 (int computeUnitID, uint ulen,  __global unsigned char *plain_key,  __global uint *digestOut) {
 
    int t, gid, msg_pad;
    int stop, mmod;
@@ -180,7 +180,7 @@ void sha256 (int computeUnitID, uint ulen,  unsigned char *plain_key,  __global 
 
 
 
-inline void loadUintHash ( unsigned char* dest, __global uint* src) {
+inline void loadUintHash ( __global unsigned char* dest, __global uint* src) {
 
     for ( int i = 0; i < 8; i++) {
         dest[i*4+3] = (src[i] & 0xFF000000) >> 24;
@@ -191,6 +191,14 @@ inline void loadUintHash ( unsigned char* dest, __global uint* src) {
 
 }
 
+inline void loadUint ( __global unsigned char* dest, uint src) {
+
+    dest[3] = (src & 0xFF000000) >> 24;
+    dest[2] = (src & 0x00FF0000) >> 16;
+    dest[1] = (src & 0x0000FF00) >> 8;
+    dest[0] = (src & 0x000000FF);
+
+}
 
 #define HASHOP_ADD 0
 #define HASHOP_XOR 1
@@ -202,30 +210,23 @@ inline void loadUintHash ( unsigned char* dest, __global uint* src) {
 #define HASHOP_MEM_SELECT 7
 #define HASHOP_END 8
 
-__kernel void dyn_hash (__global uint* byteCode, __global uint* memGenBuffer, int memGenSize, __global uint* hashResult, __global char* foundFlag, __global unsigned char* header, __global unsigned char* shaScratch) {
+__kernel void dyn_hash (__global uint* byteCode, __global uint* memGenBuffer, int memGenSize, __global uint* hashResult, __global unsigned char* header, __global unsigned char* shaScratch) {
     
     int computeUnitID = get_global_id(0);
 
     __global uint* myMemGen = &memGenBuffer[computeUnitID * memGenSize * 8];        //each memGen unit is 256 bits, or 8 bytes
     __global uint* myHashResult = &hashResult[computeUnitID * 8];
-    __global char* myFoundFlag = foundFlag + computeUnitID;
     __global unsigned char* myHeader = header + (computeUnitID * 80);
-    //__global unsigned char* myScratch = shaScratch + (computeUnitID * 32);
+    __global unsigned char* myScratch = shaScratch + (computeUnitID * 32);
 
-
-    unsigned char localHeader[80];
-    for ( int i = 0; i < 80; i++)
-        localHeader[i] = myHeader[i];
-
-    unsigned char myScratch[32];
-
-    sha256 ( computeUnitID, 80, localHeader, myHashResult );
+    sha256 ( computeUnitID, 80, myHeader, myHashResult );
 
     uint linePtr = 0;
     uint done = 0;
     uint currentMemSize = 0;
     uint instruction = 0;
 
+    
     while (done == 0) {
 
         if (byteCode[linePtr] == HASHOP_ADD) {
@@ -322,7 +323,7 @@ __kernel void dyn_hash (__global uint* byteCode, __global uint* memGenBuffer, in
             done = 1;        
 
     }
-
+    
 
 
 }
