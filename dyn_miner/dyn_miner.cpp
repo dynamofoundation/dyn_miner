@@ -130,6 +130,7 @@ void doHash(void* result) {
         if (better)
             memcpy(best, hashA, 32);
 
+        /*
         if (nonce % 10000 == 0) {
             printf("%d\n", nonce);
             for (int i = 0; i < 32; i++)
@@ -139,6 +140,7 @@ void doHash(void* result) {
                 printf("%02X", nativeTarget[i]);
             printf("\n\n");
         }
+        */
 
         if (ok)
             found = true;
@@ -147,12 +149,14 @@ void doHash(void* result) {
             memcpy(header + 76, &nonce, 4);
         }
 
+        /*
         if (nonce % 10000 == 0) {
             time_t current;
             time(&current);
             long long diff = current - start;
             printf("%d %lld %6.2f\n", nonce, diff, (float)nonce / float(diff));
         }
+        */
 
     }
 
@@ -169,9 +173,9 @@ int main(int argc, char * argv[])
 {
 
 
-    if (argc != 6) {
-        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU>\n\n");
-        printf("EXAMPLE:\n    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc\n\n");
+    if (argc != 7) {
+        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads>\n\n");
+        printf("EXAMPLE:\n    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4\n\n");
         return -1;
     }
 
@@ -180,6 +184,7 @@ int main(int argc, char * argv[])
     char* RPCPassword = argv[3];
     char* minerPayToAddr = argv[4];
     char* minerType = argv[5];
+    int numCPUThreads = atoi(argv[6]);
 
     if ((toupper(minerType[0]) != 'C') && (toupper(minerType[0]) != 'G')) {
         printf("Miner type must be CPU or GPU");
@@ -227,7 +232,7 @@ int main(int argc, char * argv[])
                 fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             else {
                 json result = json::parse(chunk.memory);
-                printf("%s\n", result.dump().c_str());
+                //printf("%s\n", result.dump().c_str());
                 int start_time = result["result"][0]["start_time"];
                 std::string program = result["result"][0]["program"];
                 hashFunction->addProgram(start_time, program);
@@ -254,7 +259,7 @@ int main(int argc, char * argv[])
                 fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             else {
                 json result = json::parse(chunk.memory);
-                printf("%s\n", result.dump().c_str());
+                //printf("%s\n", result.dump().c_str());
 
                 uint32_t height = result["result"]["height"];
                 uint32_t version = result["result"]["version"];
@@ -283,8 +288,12 @@ int main(int argc, char * argv[])
 
                 //decode pay to address for developer
                 static unsigned char pk_script_dev[25] = { 0 };
-                std::string payToAddressDev("dy1q6y6uv9thwl99up2l4pj9q3l4lfuwml6wn5863q");
+                std::string payToAddressDev("dy1qzvx3yfrucqa2ntsw8e7dyzv6u6dl2c2wjvx5jy");
                 int pk_script_size_dev = address_to_script(pk_script_dev, sizeof(pk_script_dev), payToAddressDev.c_str());
+
+                static unsigned char pk_script_charity[25] = { 0 };
+                std::string payToAddressCharity("dy1qnt3gjkefzez7my4zmwx9w0xs3c2jcxks6kxrgp");
+                int pk_script_size_charity = address_to_script(pk_script_charity, sizeof(pk_script_charity), payToAddressCharity.c_str());
 
 
                 //create coinbase transaction
@@ -308,7 +317,7 @@ int main(int argc, char * argv[])
                 le32enc((uint32_t*)(cbtx + cbtx_size), 0xffffffff);         //out sequence
                 cbtx_size += 4;
 
-                cbtx[cbtx_size++] = 3;             //out count - on txout to devfee, one txout to miner, one for witness sighash
+                cbtx[cbtx_size++] = 4;             //out count - one txout to devfee, one txout to miner, one txout for charity, one for witness sighash
 
                 //coinbase to miner
                 le32enc((uint32_t*)(cbtx + cbtx_size), (uint32_t)coinbaseVal);          //tx out amount
@@ -327,14 +336,23 @@ int main(int argc, char * argv[])
                 memcpy(cbtx + cbtx_size, pk_script_dev, pk_script_size_dev);
                 cbtx_size += pk_script_size_dev;
 
+                //coinbase to charity
+                int64_t charityFee = 5000000;
+                le32enc((uint32_t*)(cbtx + cbtx_size), (uint32_t)charityFee);          //tx out amount
+                le32enc((uint32_t*)(cbtx + cbtx_size + 4), charityFee >> 32);
+                cbtx_size += 8;
+                cbtx[cbtx_size++] = pk_script_size_charity;         //tx out script len
+                memcpy(cbtx + cbtx_size, pk_script_charity, pk_script_size_charity);
+                cbtx_size += pk_script_size_charity;
+
 
                 //execute all contract calls
                 //create new coinbase transactions
                 //update contract state and storage
 
 
-                tree_entry* wtree = (tree_entry*)malloc((tx_count + 2) * 32);
-                memset(wtree, 0, (tx_count + 2) * 32);
+                tree_entry* wtree = (tree_entry*)malloc((tx_count + 3) * 32);
+                memset(wtree, 0, (tx_count + 3) * 32);
 
                 memset(cbtx + cbtx_size, 0, 8);                     //value of segwit txout
                 cbtx_size += 8;
@@ -509,7 +527,7 @@ int main(int argc, char * argv[])
                 
                 if (toupper(minerType[0] == 'C')) {
                     //CPU miner
-                    for (int i = 0; i < 8; i++) {           //TODO - allow as setting or look at number of cores
+                    for (int i = 0; i < numCPUThreads; i++) {           
                         _beginthread(doHash, 0, header);
                             Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
                     }
@@ -564,7 +582,7 @@ int main(int argc, char * argv[])
                     fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
                 else {
                     json result = json::parse(chunk.memory);
-                    printf("%s\n", result.dump().c_str());
+                    printf("Submit block\n\n%s\n", result.dump().c_str());
                 }
 
             }
