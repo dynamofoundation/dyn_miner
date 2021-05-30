@@ -203,16 +203,16 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
 
     cl_int returnVal;
-    cl_platform_id platform_id = NULL;
-    cl_device_id device_id = NULL;
+    cl_platform_id* platform_id = (cl_platform_id*)malloc(16 * sizeof(cl_platform_id));
+    cl_device_id *device_id = (cl_device_id*)malloc(16 * sizeof(cl_device_id));
     cl_uint ret_num_devices;
     cl_uint ret_num_platforms;
     cl_context context;
 
     //Initialize context
-    returnVal = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
-    returnVal = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
-    context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &returnVal);
+    returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
+    returnVal = clGetDeviceIDs(platform_id[1], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
+    context = clCreateContext(NULL, 1, device_id, NULL, NULL, &returnVal);
 
 
     size_t sizeRet;
@@ -223,11 +223,11 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
     cl_bool littleEndian;
 
     //Get some device capabilities
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
     
 
     computeUnits = 1000;
@@ -235,7 +235,7 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
     //Read the kernel source
     FILE* kernelSourceFile;
 
-    kernelSourceFile = fopen("C:\\Users\\user\\source\\repos\\dyn_miner\\dyn_miner\\dyn_miner.cl", "r");
+    kernelSourceFile = fopen("dyn_miner.cl", "r");
     if (!kernelSourceFile) {
         fprintf(stderr, "Failed to load kernel.\n");
         return;
@@ -255,25 +255,25 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
     //Create kernel program
     program = clCreateProgramWithSource(context, 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
-    returnVal = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+    returnVal = clBuildProgram(program, 1, &device_id[0], NULL, NULL, NULL);
 
     if (returnVal == CL_BUILD_PROGRAM_FAILURE) {
         // Determine the size of the log
         size_t log_size;
-        clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+        clGetProgramBuildInfo(program, device_id[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
 
         // Allocate memory for the log
         char* log = (char*)malloc(log_size);
 
         // Get the log
-        clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+        clGetProgramBuildInfo(program, device_id[0], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
 
         // Print the log
         printf("\n\n%s\n", log);
     }
 
     kernel = clCreateKernel(program, "dyn_hash", &returnVal);
-    command_queue = clCreateCommandQueueWithProperties(context, device_id, NULL, &returnVal);
+    command_queue = clCreateCommandQueueWithProperties(context, device_id[0], NULL, &returnVal);
 
 
     //Calculate buffer sizes - mempool, hash result buffer, done flag
