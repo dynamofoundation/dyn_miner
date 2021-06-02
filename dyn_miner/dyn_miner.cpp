@@ -52,6 +52,9 @@ static size_t WriteMemoryCallback(void* contents, size_t size, size_t nmemb, voi
 
 
 bool globalFound;
+bool globalTimeout;
+uint32_t globalNonceCount;
+
 CDynHash* hashFunction;
 std::string prevBlockHash;
 char strMerkleRoot[128];
@@ -96,11 +99,10 @@ void doHash(void* result) {
     time_t start;
     time(&start);
 
-    nonce = 0;
+    uint32_t startNonce = nonce;
 
     bool found = false;
-    //CSHA256 hash;
-    while ((!found) && (!globalFound)) {
+    while ((!found) && (!globalFound) && (!globalTimeout)) {
         std::string result = hashFunction->programs[0]->execute(header, prevBlockHash, strMerkleRoot);      //todo - overwrites local param "result"
         hex2bin(hashA, result.c_str(), 32);
 
@@ -149,14 +151,16 @@ void doHash(void* result) {
             memcpy(header + 76, &nonce, 4);
         }
 
-        /*
-        if (nonce % 10000 == 0) {
-            time_t current;
-            time(&current);
-            long long diff = current - start;
-            printf("%d %lld %6.2f\n", nonce, diff, (float)nonce / float(diff));
+
+        time_t current;
+        time(&current);
+        long long diff = current - start;
+
+        if (diff % 3 == 0) {
+            globalNonceCount += nonce - startNonce;
+            startNonce = nonce;
         }
-        */
+        
 
     }
 
@@ -171,6 +175,16 @@ void doHash(void* result) {
 
 int main(int argc, char * argv[])
 {
+
+    printf("*******************************************************************\n");
+    printf("Dynamo coin reference miner.  This software is supplied by Dynamo\n");
+    printf("Coin Foundation with no warranty and solely on an AS-IS basis.\n");
+    printf("\n");
+    printf("We hope others will use this as a code base to produce production\n");
+    printf("quality mining software.\n");
+    printf("\n");
+    printf("Version 0.11, June 2, 2021\n");
+    printf("*******************************************************************\n");
 
 
     if (argc != 7) {
@@ -522,7 +536,8 @@ int main(int argc, char * argv[])
                 unsigned char header[80];
 
                 globalFound = false;
-
+                globalTimeout = false;
+                globalNonceCount = 0;
 
                 
                 if (toupper(minerType[0] == 'C')) {
@@ -532,8 +547,21 @@ int main(int argc, char * argv[])
                             Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
                     }
 
-                    while (!globalFound)
-                        Sleep(10);
+                    time_t start;
+                    time(&start);
+
+                    while ((!globalFound) && (!globalTimeout)) {
+                        Sleep(1000);
+                        time_t now;
+                        time(&now);
+                        if ((now - start) % 3 == 0) {
+                            printf("hashrate: %8.2f\n", (float)globalNonceCount / (float)(now - start));
+                        }
+                        if (now - start > 18) {
+                            globalTimeout = true;
+                            printf("Checking for stale block\n");
+                        }
+                    }
                 }
                 else if (toupper(minerType[0] == 'G')) {
                     doGPUHash(header);
@@ -561,28 +589,29 @@ int main(int argc, char * argv[])
                 strBlock += std::string(hexHeader);
                 strBlock += transactionString;
 
+                if (!globalTimeout) {
+                    std::string postBlockRequest = std::string("{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"") + strBlock + std::string("\"] }");
 
-                std::string postBlockRequest = std::string("{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"") + strBlock + std::string("\"] }");
+                    chunk.size = 0;
 
-                chunk.size = 0;
+                    curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
+                    curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+                    curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
+                    curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
 
-                curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
-                curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-                curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
-                curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+                    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
 
-                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-                curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+                    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBlockRequest.c_str());
 
-                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBlockRequest.c_str());
+                    res = curl_easy_perform(curl);
 
-                res = curl_easy_perform(curl);
-
-                if (res != CURLE_OK)
-                    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-                else {
-                    json result = json::parse(chunk.memory);
-                    printf("Submit block\n\n%s\n", result.dump().c_str());
+                    if (res != CURLE_OK)
+                        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                    else {
+                        json result = json::parse(chunk.memory);
+                        printf("Submit block\n\n%s\n", result.dump().c_str());
+                    }
                 }
 
             }

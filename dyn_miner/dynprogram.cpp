@@ -209,9 +209,10 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
     cl_uint ret_num_platforms;
     cl_context context;
 
+    int whichGPU = 0;
     //Initialize context
     returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
-    returnVal = clGetDeviceIDs(platform_id[1], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
+    returnVal = clGetDeviceIDs(platform_id[whichGPU], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
     context = clCreateContext(NULL, 1, device_id, NULL, NULL, &returnVal);
 
 
@@ -274,7 +275,7 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
     kernel = clCreateKernel(program, "dyn_hash", &returnVal);
     command_queue = clCreateCommandQueueWithProperties(context, device_id[0], NULL, &returnVal);
-
+    
 
     //Calculate buffer sizes - mempool, hash result buffer, done flag
     uint32_t memgenBytes = largestMemgen * 32;
