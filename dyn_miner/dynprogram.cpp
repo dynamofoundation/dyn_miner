@@ -184,8 +184,8 @@ std::string CDynProgram::makeHex(unsigned char* in, int len)
 
 
 
-
-void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce) {
+//returns 1 if timeout or 0 if successful
+int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce) {
 
 
 
@@ -239,7 +239,7 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
     kernelSourceFile = fopen("dyn_miner.cl", "r");
     if (!kernelSourceFile) {
         fprintf(stderr, "Failed to load kernel.\n");
-        return;
+        return 1;
     }
     fseek(kernelSourceFile, 0, SEEK_END);
     size_t sourceFileLen = ftell(kernelSourceFile)+1;
@@ -348,12 +348,17 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
     time_t start;
     time(&start);
+    time_t lastreport = start;
 
-    for (int i = 0; i < computeUnits; i++)
+    for (int i = 0; i < computeUnits; i++) 
         memcpy(buffHeader + (i * 80), blockHeader, 80);
 
     int loops = 0;
-    uint32_t nonce = 0;
+    srand(start);
+    uint32_t nonce = start * rand();
+    for (int i = 0; i < 80; i++)
+        nonce += blockHeader[i];
+
     bool found = false;
 
     unsigned char hashA[32];
@@ -362,7 +367,9 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
     int foundIndex;
 
-    while (!found) {
+    uint32_t startNonce = nonce;
+    bool timeout = false;
+    while ((!found) && (!timeout)) {
 
         for (int i = 0; i < computeUnits; i++) {
             uint32_t nonce1 = nonce + i;
@@ -418,16 +425,20 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
                 j++;
         }
 
-        if (loops % 10 == 0) {
+        time_t now;
+        time(&now);
+        if ((now - lastreport) >= 3) {
             time_t current;
             time(&current);
             long long diff = current - start;
-            printf("%d %lld %6.2f\n", nonce, diff, (float)nonce / float(diff));
+            printf("hashrate: %8.2f\n", (float)(nonce - startNonce) / float(diff));
 
-            printf("best ");
-            for (int i = 0; i < 32; i++)
-                printf("%02X", best[i]);
-            printf("\n");
+            if (now - start > 18) {
+                timeout = true;
+                printf("Checking for stale block\n");
+            }
+
+            lastreport = now;
         }
         loops++;
 
@@ -440,7 +451,18 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
     }
 
     memcpy(resultNonce, buffHeader + (foundIndex * 80) + 76, 4);
-    
+
+    clReleaseKernel(kernel);
+    clReleaseProgram(program);
+    clReleaseMemObject(clGPUProgramBuffer);
+    clReleaseMemObject(clGPUMemGenBuffer);
+    clReleaseMemObject(clGPUHashResultBuffer);
+    clReleaseMemObject(clGPUHeaderBuffer);
+    clReleaseMemObject(clGPUScratchBuffer);
+    clReleaseCommandQueue(command_queue);
+    clReleaseContext(context);
+
+    return timeout;
 }
 
 

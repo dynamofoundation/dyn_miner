@@ -64,16 +64,18 @@ unsigned char nativeTarget[32];
 unsigned char nativeData[80];
 
 
-void doGPUHash(void *result) {
+int doGPUHash(void *result) {
     uint32_t resultNonce;
 
     unsigned char header[80];
     memcpy(header, nativeData, 80);
 
-    hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce);
+    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce);
 
     memcpy(header + 76, &resultNonce, 4);
     memcpy(result, header, 80);
+
+    return iresult;
 }
 
 
@@ -564,7 +566,7 @@ int main(int argc, char * argv[])
                     }
                 }
                 else if (toupper(minerType[0] == 'G')) {
-                    doGPUHash(header);
+                    globalTimeout = doGPUHash(header);
                 }
 
 
@@ -610,7 +612,11 @@ int main(int argc, char * argv[])
                         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
                     else {
                         json result = json::parse(chunk.memory);
-                        printf("Submit block\n\n%s\n", result.dump().c_str());
+
+                        if (result["error"].is_null())
+                            printf("****Submit block Success!****\n");
+                        else
+                            printf("Submit block failed.\n");
                     }
                 }
 
