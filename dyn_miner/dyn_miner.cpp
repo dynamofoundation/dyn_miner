@@ -2,14 +2,30 @@
 //
 
 #include <iostream>
+
+#ifdef __linux__
+#include "json.hpp"
+#endif
+
+#ifdef _WIN32
 #include <nlohmann/json.hpp>
+#endif
+
 #include <curl\curl.h>
 #include "sha256.h"
 
-#include "Common.h"
+#include "common.h"
 #include "dynhash.h"
 
+#ifdef __linux__
+#include <linux/unistd.h>       /* for _syscallX macros/related stuff */
+#include <linux/kernel.h>       /* for struct sysinfo */
+#include <sys/sysinfo.h>
+#endif
+
+#ifdef _WIN32
 #include "process.h"
+#endif
 
 
 void diff_to_target(uint32_t* target, double diff);
@@ -541,7 +557,7 @@ int main(int argc, char * argv[])
                 globalTimeout = false;
                 globalNonceCount = 0;
 
-                
+#ifdef _WIN32
                 if (toupper(minerType[0] == 'C')) {
                     //CPU miner
                     for (int i = 0; i < numCPUThreads; i++) {           
@@ -565,9 +581,12 @@ int main(int argc, char * argv[])
                         }
                     }
                 }
-                else if (toupper(minerType[0] == 'G')) {
+#endif
+
+                if (toupper(minerType[0] == 'G')) {
                     globalTimeout = doGPUHash(header);
                 }
+
 
 
                 //submit solution
@@ -668,7 +687,11 @@ void bin2hex(char* s, const unsigned char* p, size_t len)
 {
     int i;
     for (i = 0; i < len; i++)
+#ifdef __linux__
+	sprintf ( s + (i * 2), "%02x", (unsigned int)p[i]);
+#else
         sprintf_s(s + (i * 2), 3,  "%02x", (unsigned int)p[i]);
+#endif
 
 }
 

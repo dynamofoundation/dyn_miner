@@ -262,8 +262,10 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
     kernelSourceFile = fopen("dyn_miner.cl", "r");
     if (!kernelSourceFile) {
+
         fprintf(stderr, "Failed to load kernel.\n");
-        return 1;
+        return;
+
     }
     fseek(kernelSourceFile, 0, SEEK_END);
     size_t sourceFileLen = ftell(kernelSourceFile)+1;
