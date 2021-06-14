@@ -5,7 +5,7 @@
 
 #ifdef __linux__
 #include "json.hpp"
-#include "curl.h"
+#include "curl/curl.h"
 #endif
 
 #ifdef _WIN32
