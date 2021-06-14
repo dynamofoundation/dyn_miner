@@ -209,7 +209,7 @@ std::string CDynProgram::makeHex(unsigned char* in, int len)
 
 
 //returns 1 if timeout or 0 if successful
-int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int GPUid) {
+int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int platformID, int deviceID) {
 
 
 
@@ -233,10 +233,9 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     cl_uint ret_num_platforms;
     cl_context context;
 
-    int whichGPU = GPUid;
     //Initialize context
     returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
-    returnVal = clGetDeviceIDs(platform_id[whichGPU], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
+    returnVal = clGetDeviceIDs(platform_id[platformID], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
     context = clCreateContext(NULL, 1, device_id, NULL, NULL, &returnVal);
 
 
@@ -248,11 +247,11 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     cl_bool littleEndian;
 
     //Get some device capabilities
-    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
     
 
     computeUnits = numComputeUnits;
@@ -282,26 +281,26 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
     //Create kernel program
     program = clCreateProgramWithSource(context, 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
-    returnVal = clBuildProgram(program, 1, &device_id[0], NULL, NULL, NULL);
+    returnVal = clBuildProgram(program, 1, &device_id[deviceID], NULL, NULL, NULL);
     free(kernelSource);
 
     if (returnVal == CL_BUILD_PROGRAM_FAILURE) {
         // Determine the size of the log
         size_t log_size;
-        clGetProgramBuildInfo(program, device_id[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+        clGetProgramBuildInfo(program, device_id[deviceID], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
 
         // Allocate memory for the log
         char* log = (char*)malloc(log_size);
 
         // Get the log
-        clGetProgramBuildInfo(program, device_id[0], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+        clGetProgramBuildInfo(program, device_id[deviceID], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
 
         // Print the log
         printf("\n\n%s\n", log);
     }
 
     kernel = clCreateKernel(program, "dyn_hash", &returnVal);
-    command_queue = clCreateCommandQueueWithProperties(context, device_id[0], NULL, &returnVal);
+    command_queue = clCreateCommandQueueWithProperties(context, device_id[deviceID], NULL, &returnVal);
     
 
     //Calculate buffer sizes - mempool, hash result buffer, done flag

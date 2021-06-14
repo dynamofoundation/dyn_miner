@@ -82,7 +82,8 @@ unsigned char nativeTarget[32];
 unsigned char nativeData[80];
 
 int numCPUThreads;
-int GPUid;
+int GPUplatformID;
+int GPUdeviceID;
 
 
 
@@ -92,7 +93,7 @@ int doGPUHash(void *result) {
     unsigned char header[80];
     memcpy(header, nativeData, 80);
 
-    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, GPUid);
+    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, GPUplatformID, GPUdeviceID);
 
     memcpy(header + 76, &resultNonce, 4);
     memcpy(result, header, 80);
@@ -218,13 +219,14 @@ int main(int argc, char * argv[])
 
 
     if (argc != 8) {
-        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu device id>\n\n");
+        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <gpu device id>\n\n");
         printf("EXAMPLE:\n");
-        printf("    dyn_miner http ://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0\n");
-        printf("    dyn_miner http ://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 1\n");
+        printf("    dyn_miner http ://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 0\n");
+        printf("    dyn_miner http ://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 1 0\n");
         printf("\n");
         printf("In CPU mode the program will create N number of CPU threads.\nIn GPU mode, the program will create N number of compute units.\n");
-        printf("Final argument is GPU ID (starts at 0) in multi GPU systems.  Ignored for CPU.\n");
+        printf("platform ID (starts at 0) is for multi GPU systems.  Ignored for CPU.\n");
+        printf("GPU ID (starts at 0) is for multi GPU systems.  Ignored for CPU.\n");
 
         return -1;
     }
@@ -235,7 +237,8 @@ int main(int argc, char * argv[])
     char* minerPayToAddr = argv[4];
     char* minerType = argv[5];
     numCPUThreads = atoi(argv[6]);
-    GPUid = atoi(argv[7]);
+    GPUplatformID = atoi(argv[7]);
+    GPUdeviceID = atoi(argv[8]);
 
     if ((toupper(minerType[0]) != 'C') && (toupper(minerType[0]) != 'G')) {
         printf("Miner type must be CPU or GPU");
