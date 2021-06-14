@@ -5,13 +5,15 @@
 
 #ifdef __linux__
 #include "json.hpp"
+#include "curl.h"
 #endif
 
 #ifdef _WIN32
 #include <nlohmann/json.hpp>
+#include <curl\curl.h>
 #endif
 
-#include <curl\curl.h>
+
 #include "sha256.h"
 
 #include "common.h"

@@ -264,7 +264,7 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     if (!kernelSourceFile) {
 
         fprintf(stderr, "Failed to load kernel.\n");
-        return;
+        return -1;
 
     }
     fseek(kernelSourceFile, 0, SEEK_END);
