@@ -184,8 +184,8 @@ std::string CDynProgram::makeHex(unsigned char* in, int len)
 
 
 
-
-void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce) {
+//returns 1 if timeout or 0 if successful
+int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce) {
 
 
 
@@ -203,16 +203,17 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
 
     cl_int returnVal;
-    cl_platform_id platform_id = NULL;
-    cl_device_id device_id = NULL;
+    cl_platform_id* platform_id = (cl_platform_id*)malloc(16 * sizeof(cl_platform_id));
+    cl_device_id *device_id = (cl_device_id*)malloc(16 * sizeof(cl_device_id));
     cl_uint ret_num_devices;
     cl_uint ret_num_platforms;
     cl_context context;
 
+    int whichGPU = 0;
     //Initialize context
-    returnVal = clGetPlatformIDs(1, &platform_id, &ret_num_platforms);
-    returnVal = clGetDeviceIDs(platform_id, CL_DEVICE_TYPE_GPU, 1, &device_id, &ret_num_devices);
-    context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &returnVal);
+    returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
+    returnVal = clGetDeviceIDs(platform_id[whichGPU], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
+    context = clCreateContext(NULL, 1, device_id, NULL, NULL, &returnVal);
 
 
     size_t sizeRet;
@@ -223,11 +224,11 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
     cl_bool littleEndian;
 
     //Get some device capabilities
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id, CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
+    returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
     
 
     computeUnits = 1000;
@@ -237,8 +238,10 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
     kernelSourceFile = fopen("dyn_miner.cl", "r");
     if (!kernelSourceFile) {
-        printf( "Failed to load kernel.\n");
+
+        fprintf(stderr, "Failed to load kernel.\n");
         return;
+
     }
     fseek(kernelSourceFile, 0, SEEK_END);
     size_t sourceFileLen = ftell(kernelSourceFile)+1;
@@ -255,26 +258,26 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
     //Create kernel program
     program = clCreateProgramWithSource(context, 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
-    returnVal = clBuildProgram(program, 1, &device_id, NULL, NULL, NULL);
+    returnVal = clBuildProgram(program, 1, &device_id[0], NULL, NULL, NULL);
 
     if (returnVal == CL_BUILD_PROGRAM_FAILURE) {
         // Determine the size of the log
         size_t log_size;
-        clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+        clGetProgramBuildInfo(program, device_id[0], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
 
         // Allocate memory for the log
         char* log = (char*)malloc(log_size);
 
         // Get the log
-        clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+        clGetProgramBuildInfo(program, device_id[0], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
 
         // Print the log
         printf("\n\n%s\n", log);
     }
 
     kernel = clCreateKernel(program, "dyn_hash", &returnVal);
-    command_queue = clCreateCommandQueueWithProperties(context, device_id, NULL, &returnVal);
-
+    command_queue = clCreateCommandQueueWithProperties(context, device_id[0], NULL, &returnVal);
+    
 
     //Calculate buffer sizes - mempool, hash result buffer, done flag
     uint32_t memgenBytes = largestMemgen * 32;
@@ -347,12 +350,17 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
     time_t start;
     time(&start);
+    time_t lastreport = start;
 
-    for (int i = 0; i < computeUnits; i++)
+    for (int i = 0; i < computeUnits; i++) 
         memcpy(buffHeader + (i * 80), blockHeader, 80);
 
     int loops = 0;
-    uint32_t nonce = 0;
+    srand(start);
+    uint32_t nonce = start * rand();
+    for (int i = 0; i < 80; i++)
+        nonce += blockHeader[i];
+
     bool found = false;
 
     unsigned char hashA[32];
@@ -361,7 +369,9 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
 
     int foundIndex;
 
-    while (!found) {
+    uint32_t startNonce = nonce;
+    bool timeout = false;
+    while ((!found) && (!timeout)) {
 
         for (int i = 0; i < computeUnits; i++) {
             uint32_t nonce1 = nonce + i;
@@ -417,16 +427,20 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
                 j++;
         }
 
-        if (loops % 10 == 0) {
+        time_t now;
+        time(&now);
+        if ((now - lastreport) >= 3) {
             time_t current;
             time(&current);
             long long diff = current - start;
-            printf("%d %lld %6.2f\n", nonce, diff, (float)nonce / float(diff));
+            printf("hashrate: %8.2f\n", (float)(nonce - startNonce) / float(diff));
 
-            printf("best ");
-            for (int i = 0; i < 32; i++)
-                printf("%02X", best[i]);
-            printf("\n");
+            if (now - start > 18) {
+                timeout = true;
+                printf("Checking for stale block\n");
+            }
+
+            lastreport = now;
         }
         loops++;
 
@@ -439,7 +453,18 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
     }
 
     memcpy(resultNonce, buffHeader + (foundIndex * 80) + 76, 4);
-    
+
+    clReleaseKernel(kernel);
+    clReleaseProgram(program);
+    clReleaseMemObject(clGPUProgramBuffer);
+    clReleaseMemObject(clGPUMemGenBuffer);
+    clReleaseMemObject(clGPUHashResultBuffer);
+    clReleaseMemObject(clGPUHeaderBuffer);
+    clReleaseMemObject(clGPUScratchBuffer);
+    clReleaseCommandQueue(command_queue);
+    clReleaseContext(context);
+
+    return timeout;
 }
 
 
