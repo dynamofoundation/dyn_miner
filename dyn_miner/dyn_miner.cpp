@@ -105,7 +105,13 @@ void doHash(void* result) {
     time(&t);
     srand(t);
 
+#ifdef _WIN32
     uint32_t nonce = rand() * t * GetTickCount();
+#endif
+
+#ifdef __linux__
+    uint32_t nonce = rand() * t;
+#endif
 
     unsigned char header[80];
     memcpy(header, nativeData, 80);
