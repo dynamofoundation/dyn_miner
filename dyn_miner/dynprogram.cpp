@@ -9,9 +9,22 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
 
     uint32_t iResult[8];
   
+    /*
+    for (int i = 0; i < 80; i++)
+        printf("%02X", blockHeader[i]);
+    printf("\n");
+    */
+
 
     ctx.Write(blockHeader, 80);
     ctx.Finalize((unsigned char*) iResult);
+
+    /*
+    for (int i = 0; i < 8; i++)
+        printf("%08X", iResult[i]);
+    printf("\n");
+    */
+    
 
 
     int line_ptr = 0;       //program execution line pointer
@@ -27,8 +40,10 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
         if (tokens[0] == "ADD") {
             uint32_t arg1[8];
             parseHex(tokens[1], (unsigned char*) arg1);
+
             for (int i = 0; i < 8; i++)
                 iResult[i] += arg1[i];
+
         }
 
         else if (tokens[0] == "XOR") {
@@ -129,6 +144,15 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
             }
         }
 
+
+        /*
+        printf("line %02d    ", line_ptr);
+        unsigned char xx[32];
+        memcpy(xx, iResult, 32);
+        for (int i = 0; i < 32; i++)
+            printf("%02X", xx[i]);
+        printf("\n");
+        */
        
 
         line_ptr++;
@@ -257,6 +281,7 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     //Create kernel program
     program = clCreateProgramWithSource(context, 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
     returnVal = clBuildProgram(program, 1, &device_id[0], NULL, NULL, NULL);
+    free(kernelSource);
 
     if (returnVal == CL_BUILD_PROGRAM_FAILURE) {
         // Determine the size of the log
@@ -452,6 +477,13 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
     memcpy(resultNonce, buffHeader + (foundIndex * 80) + 76, 4);
 
+    free(platform_id);
+    free(device_id);
+    free(buffMemGen);
+    free(buffHashResult);
+    free(buffHeader);
+    free(buffScratch);
+
     clReleaseKernel(kernel);
     clReleaseProgram(program);
     clReleaseMemObject(clGPUProgramBuffer);
@@ -461,6 +493,9 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     clReleaseMemObject(clGPUScratchBuffer);
     clReleaseCommandQueue(command_queue);
     clReleaseContext(context);
+
+
+
 
     return timeout;
 }
