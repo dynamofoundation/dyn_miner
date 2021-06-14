@@ -221,8 +221,8 @@ int main(int argc, char * argv[])
     if (argc != 9) {
         printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <gpu device id>\n\n");
         printf("EXAMPLE:\n");
-        printf("    dyn_miner http ://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 0\n");
-        printf("    dyn_miner http ://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 1 0\n");
+        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 0\n");
+        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 1 0\n");
         printf("\n");
         printf("In CPU mode the program will create N number of CPU threads.\nIn GPU mode, the program will create N number of compute units.\n");
         printf("platform ID (starts at 0) is for multi GPU systems.  Ignored for CPU.\n");
