@@ -218,7 +218,7 @@ int main(int argc, char * argv[])
     printf("*******************************************************************\n");
 
 
-    if (argc != 8) {
+    if (argc != 9) {
         printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <gpu device id>\n\n");
         printf("EXAMPLE:\n");
         printf("    dyn_miner http ://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 0\n");
