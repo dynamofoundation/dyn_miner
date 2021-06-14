@@ -235,9 +235,9 @@ void CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHa
     //Read the kernel source
     FILE* kernelSourceFile;
 
-    kernelSourceFile = fopen("C:\\Users\\user\\source\\repos\\dyn_miner\\dyn_miner\\dyn_miner.cl", "r");
+    kernelSourceFile = fopen("dyn_miner.cl", "r");
     if (!kernelSourceFile) {
-        fprintf(stderr, "Failed to load kernel.\n");
+        printf( "Failed to load kernel.\n");
         return;
     }
     fseek(kernelSourceFile, 0, SEEK_END);

@@ -5,9 +5,11 @@
 
 #include "uint256.h"
 
-//#include <util/strencodings.h>
-
 #include <string.h>
+
+#ifdef __linux__ 
+#define sprintf_s sprintf
+#endif
 
 template <unsigned int BITS>
 base_blob<BITS>::base_blob(const std::vector<unsigned char>& vch)

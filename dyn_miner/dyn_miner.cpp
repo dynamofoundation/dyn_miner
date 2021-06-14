@@ -2,14 +2,20 @@
 //
 
 #include <iostream>
-#include <nlohmann/json.hpp>
-#include <curl\curl.h>
+#include "json.hpp"
+#include <curl/curl.h>
 #include "sha256.h"
 
-#include "Common.h"
+#include "common.h"
 #include "dynhash.h"
 
-#include "process.h"
+#ifdef __linux__
+#include <linux/unistd.h>       /* for _syscallX macros/related stuff */
+#include <linux/kernel.h>       /* for struct sysinfo */
+#include <sys/sysinfo.h>
+#endif
+
+//#include "process.h"
 
 
 void diff_to_target(uint32_t* target, double diff);
@@ -73,7 +79,7 @@ void doGPUHash(void *result) {
     memcpy(result, header, 80);
 }
 
-
+/*
 void doHash(void* result) {
 
 
@@ -162,7 +168,7 @@ void doHash(void* result) {
     globalFound = true;
 
 }
-
+*/
 
 
 int main(int argc, char * argv[])
@@ -171,7 +177,7 @@ int main(int argc, char * argv[])
 
     if (argc != 6) {
         printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU>\n\n");
-        printf("EXAMPLE:\n    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc\n\n");
+        printf("EXAMPLE:\n    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU\n\n");
         return -1;
     }
 
@@ -507,6 +513,7 @@ int main(int argc, char * argv[])
 
 
                 
+/*
                 if (toupper(minerType[0] == 'C')) {
                     //CPU miner
                     for (int i = 0; i < 8; i++) {           //TODO - allow as setting or look at number of cores
@@ -518,8 +525,9 @@ int main(int argc, char * argv[])
                         Sleep(10);
                 }
                 else if (toupper(minerType[0] == 'G')) {
+*/
                     doGPUHash(header);
-                }
+ //               }
 
 
                 //submit solution
@@ -615,7 +623,11 @@ void bin2hex(char* s, const unsigned char* p, size_t len)
 {
     int i;
     for (i = 0; i < len; i++)
+#ifdef __linux__
+	sprintf ( s + (i * 2), "%02x", (unsigned int)p[i]);
+#else
         sprintf_s(s + (i * 2), 3,  "%02x", (unsigned int)p[i]);
+#endif
 
 }
 

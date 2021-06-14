@@ -243,10 +243,12 @@ uint32_t arith_uint256::GetCompact(bool fNegative) const
     return nCompact;
 }
 
+#ifndef __linux__
 inline uint32_t htole32(uint32_t host_32bits)
 {
     return host_32bits;
 }
+#endif
 
 void static inline WriteLE32(unsigned char* ptr, uint32_t x)
 {
@@ -262,10 +264,12 @@ uint256 ArithToUint256(const arith_uint256 &a)
     return b;
 }
 
+#ifndef __linux__
 inline uint32_t le32toh(uint32_t little_endian_32bits)
 {
     return little_endian_32bits;
 }
+#endif
 
 
 uint32_t static inline ReadLE32(const unsigned char* ptr)
