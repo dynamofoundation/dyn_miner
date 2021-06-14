@@ -209,7 +209,7 @@ std::string CDynProgram::makeHex(unsigned char* in, int len)
 
 
 //returns 1 if timeout or 0 if successful
-int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce) {
+int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int GPUid) {
 
 
 
@@ -233,7 +233,7 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     cl_uint ret_num_platforms;
     cl_context context;
 
-    int whichGPU = 0;
+    int whichGPU = GPUid;
     //Initialize context
     returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
     returnVal = clGetDeviceIDs(platform_id[whichGPU], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
@@ -255,7 +255,7 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     returnVal = clGetDeviceInfo(device_id[0], CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
     
 
-    computeUnits = 1000;
+    computeUnits = numComputeUnits;
 
     //Read the kernel source
     FILE* kernelSourceFile;
