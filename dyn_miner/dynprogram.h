@@ -36,7 +36,7 @@ public:
     std::string execute(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot);
 
 
-    int executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int platformID, int deviceID);
+    int executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int platformID, int deviceID, uint32_t serverNonce);
         
     uint32_t* executeGPUAssembleByteCode(uint32_t* largestMemgen, std::string prevBlockHash, std::string merkleRoot, uint32_t* byteCodeLen);
 

@@ -59,6 +59,7 @@ static size_t WriteMemoryCallback(void* contents, size_t size, size_t nmemb, voi
         printf("not enough memory (realloc returned NULL)\n");
         return 0;
     }
+    memset(ptr, 0, mem->size + realsize + 1);
 
     mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
@@ -85,6 +86,7 @@ int numCPUThreads;
 int GPUplatformID;
 int GPUdeviceID;
 
+uint32_t serverNonce;   //nonce from pool server, if used
 
 
 int doGPUHash(void *result) {
@@ -93,7 +95,7 @@ int doGPUHash(void *result) {
     unsigned char header[80];
     memcpy(header, nativeData, 80);
 
-    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, GPUplatformID, GPUdeviceID);
+    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, GPUplatformID, GPUdeviceID, serverNonce);
 
     memcpy(header + 76, &resultNonce, 4);
     memcpy(result, header, 80);
@@ -239,7 +241,7 @@ int main(int argc, char * argv[])
     //Initialize context
     returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
     for (int i = 0; i < ret_num_platforms; i++) {
-        returnVal = clGetDeviceIDs(platform_id[i], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
+        returnVal = clGetDeviceIDs(platform_id[i], CL_DEVICE_TYPE_GPU, 16, device_id, &ret_num_devices);
         for (int j = 0; j < ret_num_devices; j++) {
             returnVal = clGetDeviceInfo(device_id[j], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
             returnVal = clGetDeviceInfo(device_id[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
@@ -250,15 +252,16 @@ int main(int argc, char * argv[])
     printf("\n");
 
 
-    if (argc != 9) {
-        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <gpu device id>\n\n");
+    if (argc != 10) {
+        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <gpu device id> <stratum | solo>\n\n");
         printf("EXAMPLE:\n");
-        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 0\n");
-        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 1 0\n");
+        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 0 pool\n");
+        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 1 0 solo\n");
         printf("\n");
         printf("In CPU mode the program will create N number of CPU threads.\nIn GPU mode, the program will create N number of compute units.\n");
         printf("platform ID (starts at 0) is for multi GPU systems.  Ignored for CPU.\n");
         printf("GPU ID (starts at 0) is for multi GPU systems.  Ignored for CPU.\n");
+        printf("pool mode enables use with dyn miner pool, solo is for standalone mining.\n");
 
         return -1;
     }
@@ -266,11 +269,12 @@ int main(int argc, char * argv[])
     char* strRPC_URL = argv[1];
     char* RPCUser = argv[2];
     char* RPCPassword = argv[3];
-    char* minerPayToAddr = argv[4];
+    std::string minerPayToAddr = std::string(argv[4]);
     char* minerType = argv[5];
     numCPUThreads = atoi(argv[6]);
     GPUplatformID = atoi(argv[7]);
     GPUdeviceID = atoi(argv[8]);
+    char* mode = argv[9];
 
     if ((toupper(minerType[0]) != 'C') && (toupper(minerType[0]) != 'G')) {
         printf("Miner type must be CPU or GPU");
@@ -291,13 +295,42 @@ int main(int argc, char * argv[])
 
     curl_global_init(CURL_GLOBAL_ALL);
 
-    //const char* strRPC_URL = "http://192.168.1.62:6433";
-    //const char* strRPC_URL = "http://testnet1.dynamocoin.org:6433";
-
-    
     while (true) {
         curl = curl_easy_init();
         if (curl) {
+            time_t t;
+            time(&t);
+            serverNonce = t;    //if no pool use epoch for GPU nonce  TODO - can get more entropy here
+            if (strcmp(mode, "pool") == 0) {
+                std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"getpooldata\", \"params\" : [] }");
+
+                chunk.size = 0;
+
+                curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
+                curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+                curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
+                curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
+
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, getHashRequest.c_str());
+
+                res = curl_easy_perform(curl);
+
+                if (res != CURLE_OK)
+                    fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                else {
+                    json result = json::parse(chunk.memory);
+                    std::string strWallet = result["walletAddr"];
+                    serverNonce = result["nonce"];
+                    minerPayToAddr = strWallet;
+                }
+
+                chunk.size = 0;
+            }
+
+
             std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
 
             chunk.size = 0;

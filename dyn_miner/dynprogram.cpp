@@ -209,7 +209,7 @@ std::string CDynProgram::makeHex(unsigned char* in, int len)
 
 
 //returns 1 if timeout or 0 if successful
-int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int platformID, int deviceID) {
+int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int platformID, int deviceID, uint32_t serverNonce) {
 
 
 
@@ -235,8 +235,9 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
     //Initialize context
     returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
-    returnVal = clGetDeviceIDs(platform_id[platformID], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
-    context = clCreateContext(NULL, 1, device_id, NULL, NULL, &returnVal);
+    returnVal = clGetDeviceIDs(platform_id[platformID], CL_DEVICE_TYPE_GPU, 16, device_id, &ret_num_devices);
+    cl_device_id selected_device = device_id[deviceID];
+    context = clCreateContext(NULL, 1, &selected_device, NULL, NULL, &returnVal);
 
 
     size_t sizeRet;
@@ -281,26 +282,26 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
     //Create kernel program
     program = clCreateProgramWithSource(context, 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
-    returnVal = clBuildProgram(program, 1, &device_id[deviceID], NULL, NULL, NULL);
+    returnVal = clBuildProgram(program, 1, &selected_device, NULL, NULL, NULL);
     free(kernelSource);
 
     if (returnVal == CL_BUILD_PROGRAM_FAILURE) {
         // Determine the size of the log
         size_t log_size;
-        clGetProgramBuildInfo(program, device_id[deviceID], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+        clGetProgramBuildInfo(program, selected_device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
 
         // Allocate memory for the log
         char* log = (char*)malloc(log_size);
 
         // Get the log
-        clGetProgramBuildInfo(program, device_id[deviceID], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+        clGetProgramBuildInfo(program, selected_device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
 
         // Print the log
         printf("\n\n%s\n", log);
     }
 
     kernel = clCreateKernel(program, "dyn_hash", &returnVal);
-    command_queue = clCreateCommandQueueWithProperties(context, device_id[deviceID], NULL, &returnVal);
+    command_queue = clCreateCommandQueueWithProperties(context, selected_device, NULL, &returnVal);
     
 
     //Calculate buffer sizes - mempool, hash result buffer, done flag
@@ -381,9 +382,7 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
     int loops = 0;
     srand(start);
-    uint32_t nonce = start * rand();
-    for (int i = 0; i < 80; i++)
-        nonce += blockHeader[i];
+    uint32_t nonce = serverNonce;
 
     bool found = false;
 
