@@ -217,6 +217,38 @@ int main(int argc, char * argv[])
     printf("Version 0.11, June 2, 2021\n");
     printf("*******************************************************************\n");
 
+    printf("args=%d\n", argc);
+    for (int i = 0; i < argc; i++)
+        printf("arg%d=%s\n", i, argv[i]);
+    printf("\n");
+
+
+    cl_int returnVal;
+    cl_platform_id* platform_id = (cl_platform_id*)malloc(16 * sizeof(cl_platform_id));
+    cl_device_id* device_id = (cl_device_id*)malloc(16 * sizeof(cl_device_id));
+    cl_uint ret_num_devices;
+    cl_uint ret_num_platforms;
+    cl_context context;
+
+    cl_ulong globalMem;
+    cl_ulong localMem;
+    cl_uint computeUnits;
+    size_t sizeRet;
+
+
+    //Initialize context
+    returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
+    for (int i = 0; i < ret_num_platforms; i++) {
+        returnVal = clGetDeviceIDs(platform_id[i], CL_DEVICE_TYPE_GPU, 1, device_id, &ret_num_devices);
+        for (int j = 0; j < ret_num_devices; j++) {
+            returnVal = clGetDeviceInfo(device_id[j], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
+            returnVal = clGetDeviceInfo(device_id[j], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
+            printf("platform %d, device %d [memory %lu, compute units %d]\n", i, j, globalMem, computeUnits);
+        }
+    }
+
+    printf("\n");
+
 
     if (argc != 9) {
         printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <gpu device id>\n\n");
