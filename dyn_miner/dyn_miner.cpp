@@ -3,6 +3,8 @@
 
 #include <iostream>
 
+#include <thread>
+
 #ifdef __linux__
 #include "json.hpp"
 #include "curl/curl.h"
@@ -26,7 +28,7 @@
 #endif
 
 #ifdef _WIN32
-#include "process.h"
+//#include "process.h"
 #endif
 
 
@@ -662,19 +664,23 @@ int main(int argc, char * argv[])
                 globalTimeout = false;
                 globalNonceCount = 0;
 
-#ifdef _WIN32
                 if (toupper(minerType[0] == 'C')) {
                     //CPU miner
-                    for (int i = 0; i < numCPUThreads; i++) {           
-                        _beginthread(doHash, 0, header);
-                            Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
+                    for (int i = 0; i < numCPUThreads; i++) {     
+                        std::thread(doHash, header);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(strMerkleRoot[10]));
+
+//                        _beginthread(doHash, 0, header);
+  //                          Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
                     }
 
                     time_t start;
                     time(&start);
 
                     while ((!globalFound) && (!globalTimeout)) {
-                        Sleep(1000);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+
+                        //Sleep(1000);
                         time_t now;
                         time(&now);
                         if ((now - start) % 3 == 0) {
@@ -686,20 +692,22 @@ int main(int argc, char * argv[])
                         }
                     }
                 }
-#endif
+
 
                 if (toupper(minerType[0] == 'G')) {
                     for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
                         sGPUWork* work = (sGPUWork*)malloc(sizeof(sGPUWork));
                         work->gpuIndex = i;
                         _beginthread(doGPUHash, 0, work);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(strMerkleRoot[10]));
                     }
 
                     time_t start;
                     time(&start);
 
                     while ((!globalFound) && (!globalTimeout)) {
-                        Sleep(1000);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                        //Sleep(1000);
                         time_t now;
                         time(&now);
                         if ((now - start) % 3 == 0) {
