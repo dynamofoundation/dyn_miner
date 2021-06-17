@@ -89,25 +89,20 @@ int GPUplatformID;
 
 uint32_t serverNonce;   //nonce from pool server, if used
 
-struct sGPUWork {
-    int gpuIndex;
-    unsigned char result[80];
-};
 
-
-void doGPUHash(void *result) {
-
-    sGPUWork* data = (sGPUWork*)result;
+void doGPUHash(int gpuIndex, unsigned char* result) {
 
     uint32_t resultNonce;
 
     unsigned char header[80];
     memcpy(header, nativeData, 80);
 
-    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, serverNonce, data->gpuIndex);
+    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, serverNonce, gpuIndex);
 
-    memcpy(header + 76, &resultNonce, 4);
-    memcpy(data->result, header, 80);
+    if (!iresult) {
+        memcpy(header + 76, &resultNonce, 4);
+        memcpy(result, header, 80);
+    }
 
 }
 
@@ -213,9 +208,17 @@ void doHash(void* result) {
 }
 
 
+void xxxx(int z) {
+    printf("%d", z);
+}
+
 
 int main(int argc, char * argv[])
 {
+
+
+
+
 
     printf("*******************************************************************\n");
     printf("Dynamo coin reference miner.  This software is supplied by Dynamo\n");
@@ -244,7 +247,6 @@ int main(int argc, char * argv[])
     cl_ulong localMem;
     cl_uint computeUnits;
     size_t sizeRet;
-
 
     //Initialize context
     returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
@@ -373,8 +375,9 @@ int main(int argc, char * argv[])
                         initGPU = true;
                 }
                 hashFunction->addProgram(start_time, program);
-                if (initGPU)
+                if (initGPU) {
                     hashFunction->programs[0]->initOpenCL(GPUplatformID, numCPUThreads);
+                }
             }
 
 
@@ -667,9 +670,9 @@ int main(int argc, char * argv[])
                 if (toupper(minerType[0] == 'C')) {
                     //CPU miner
                     for (int i = 0; i < numCPUThreads; i++) {     
-                        std::thread(doHash, header);
+                        std::thread t1(doHash, header);
                         std::this_thread::sleep_for(std::chrono::milliseconds(strMerkleRoot[10]));
-
+                        t1.detach();
 //                        _beginthread(doHash, 0, header);
   //                          Sleep((strMerkleRoot[10] * GetTickCount()) % 23);
                     }
@@ -696,10 +699,9 @@ int main(int argc, char * argv[])
 
                 if (toupper(minerType[0] == 'G')) {
                     for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
-                        sGPUWork* work = (sGPUWork*)malloc(sizeof(sGPUWork));
-                        work->gpuIndex = i;
-                        _beginthread(doGPUHash, 0, work);
+                        std::thread t1(doGPUHash, i, header);
                         std::this_thread::sleep_for(std::chrono::milliseconds(strMerkleRoot[10]));
+                        t1.detach();
                     }
 
                     time_t start;
@@ -718,6 +720,7 @@ int main(int argc, char * argv[])
                             printf("Checking for stale block\n");
                         }
                     }
+
 
 
                 }
