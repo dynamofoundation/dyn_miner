@@ -207,9 +207,170 @@ std::string CDynProgram::makeHex(unsigned char* in, int len)
 }
 
 
+void CDynProgram::initOpenCL(int platformID, int computeUnits) {
+
+    uint32_t largestMemgen = 0;
+    uint32_t byteCodeLen = 0;
+    uint32_t* byteCode = executeGPUAssembleByteCode(&largestMemgen, "0000", "0000", &byteCodeLen);  //only calling to get largestMemgen
+
+
+    cl_int returnVal;
+    cl_platform_id* platform_id = (cl_platform_id*)malloc(16 * sizeof(cl_platform_id));
+    openCLDevices = (cl_device_id*)malloc(16 * sizeof(cl_device_id));
+    cl_uint ret_num_platforms;
+    cl_context* context = (cl_context*)malloc(16 * sizeof(cl_context));
+    kernel = (cl_kernel*)malloc(16 * sizeof(cl_kernel));
+    command_queue = (cl_command_queue*)malloc(16 * sizeof(cl_command_queue));
+
+
+    clGPUHashResultBuffer = (cl_mem*)malloc(16 * sizeof(cl_mem));
+    buffHashResult = (uint32_t**)malloc(16 * sizeof(uint32_t));
+
+    clGPUHeaderBuffer = (cl_mem*)malloc(16 * sizeof(cl_mem));
+    buffHeader = (unsigned char**)malloc(16 * sizeof(char*));
+
+    clGPUProgramBuffer = (cl_mem*)malloc(16 * sizeof(cl_mem));
+
+    //Initialize context
+    returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
+    returnVal = clGetDeviceIDs(platform_id[platformID], CL_DEVICE_TYPE_GPU, 16, openCLDevices, &numOpenCLDevices);
+    for (int i = 0; i < numOpenCLDevices; i++) {
+        context[i] = clCreateContext(NULL, 1, &openCLDevices[i], NULL, NULL, &returnVal);
+
+        /*
+        size_t sizeRet;
+        cl_ulong globalMem;
+        cl_ulong localMem;
+        cl_uint computeUnits;
+        size_t workGroups;
+        cl_bool littleEndian;
+
+        //Get some device capabilities
+        returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
+        returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
+        returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
+        returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
+        returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
+        */
+
+        //computeUnits = numComputeUnits;
+
+        //Read the kernel source
+        FILE* kernelSourceFile;
+
+        kernelSourceFile = fopen("dyn_miner.cl", "r");
+        if (!kernelSourceFile) {
+
+            fprintf(stderr, "Failed to load kernel.\n");
+            return;
+
+        }
+        fseek(kernelSourceFile, 0, SEEK_END);
+        size_t sourceFileLen = ftell(kernelSourceFile) + 1;
+        char* kernelSource = (char*)malloc(sourceFileLen);
+        memset(kernelSource, 0, sourceFileLen);
+        fseek(kernelSourceFile, 0, SEEK_SET);
+        fread(kernelSource, 1, sourceFileLen, kernelSourceFile);
+        fclose(kernelSourceFile);
+
+
+        cl_program program;
+
+        //Create kernel program
+        program = clCreateProgramWithSource(context[i], 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
+        returnVal = clBuildProgram(program, 1, &openCLDevices[i], NULL, NULL, NULL);
+        free(kernelSource);
+
+        if (returnVal == CL_BUILD_PROGRAM_FAILURE) {
+            // Determine the size of the log
+            size_t log_size;
+            clGetProgramBuildInfo(program, openCLDevices[i], CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+
+            // Allocate memory for the log
+            char* log = (char*)malloc(log_size);
+
+            // Get the log
+            clGetProgramBuildInfo(program, openCLDevices[i], CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
+
+            // Print the log
+            printf("\n\n%s\n", log);
+        }
+
+        kernel[i] = clCreateKernel(program, "dyn_hash", &returnVal);
+        command_queue[i] = clCreateCommandQueueWithProperties(context[i], openCLDevices[i], NULL, &returnVal);
+
+
+        //Calculate buffer sizes - mempool, hash result buffer, done flag
+        uint32_t memgenBytes = largestMemgen * 32;
+        uint32_t globalMempoolSize = memgenBytes * computeUnits;
+        //TODO - make sure this is less than globalMem
+
+
+        //Allocate program source buffer and load
+        clGPUProgramBuffer[i] = clCreateBuffer(context[i], CL_MEM_READ_WRITE, byteCodeLen, NULL, &returnVal);
+        returnVal = clSetKernelArg(kernel[i], 0, sizeof(clGPUProgramBuffer[i]), (void*)&clGPUProgramBuffer[i]);
+        returnVal = clEnqueueWriteBuffer(command_queue[i], clGPUProgramBuffer[i], CL_TRUE, 0, byteCodeLen, byteCode, 0, NULL, NULL);
+
+
+        //Allocate global memory buffer and zero
+        cl_mem clGPUMemGenBuffer = clCreateBuffer(context[i], CL_MEM_READ_WRITE, globalMempoolSize, NULL, &returnVal);
+        returnVal = clSetKernelArg(kernel[i], 1, sizeof(clGPUMemGenBuffer), (void*)&clGPUMemGenBuffer);
+        /*
+        unsigned char* buffMemGen = (unsigned char*)malloc(globalMempoolSize);
+        memset(buffMemGen, 0, globalMempoolSize);
+        returnVal = clEnqueueWriteBuffer(command_queue, clGPUMemGenBuffer, CL_TRUE, 0, globalMempoolSize, buffMemGen, 0, NULL, NULL);
+        */
+
+
+        //Size of memgen area - this is the number of 8 uint blocks
+        returnVal = clSetKernelArg(kernel[i], 2, sizeof(largestMemgen), (void*)&largestMemgen);
+
+
+        //Allocate hash result buffer and zero
+        hashResultSize = computeUnits * 32;
+        clGPUHashResultBuffer[i] = clCreateBuffer(context[i], CL_MEM_READ_WRITE, hashResultSize, NULL, &returnVal);
+        returnVal = clSetKernelArg(kernel[i], 3, sizeof(clGPUHashResultBuffer[i]), (void*)&clGPUHashResultBuffer[i]);
+        buffHashResult[i] = (uint32_t*)malloc(hashResultSize);
+        memset(buffHashResult[i], 0, hashResultSize);
+        returnVal = clEnqueueWriteBuffer(command_queue[i], clGPUHashResultBuffer[i], CL_TRUE, 0, hashResultSize, buffHashResult[i], 0, NULL, NULL);
+
+        /*
+        //Allocate found flag buffer and zero
+        uint32_t doneFlagSize = computeUnits;
+        cl_mem clGPUDoneBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, doneFlagSize, NULL, &returnVal);
+        returnVal = clSetKernelArg(kernel, 4, sizeof(clGPUDoneBuffer), (void*)&clGPUDoneBuffer);
+        unsigned char* buffDoneFlag = (unsigned char*)malloc(doneFlagSize);
+        memset(buffDoneFlag, 0, doneFlagSize);
+        returnVal = clEnqueueWriteBuffer(command_queue, clGPUDoneBuffer, CL_TRUE, 0, doneFlagSize, buffDoneFlag, 0, NULL, NULL);
+        */
+
+        //Allocate header buffer and load
+        headerBuffSize = computeUnits * 80;
+        clGPUHeaderBuffer[i] = clCreateBuffer(context[i], CL_MEM_READ_WRITE, headerBuffSize, NULL, &returnVal);
+        returnVal = clSetKernelArg(kernel[i], 4, sizeof(clGPUHeaderBuffer[i]), (void*)&clGPUHeaderBuffer[i]);
+        buffHeader[i] = (unsigned char*)malloc(headerBuffSize);
+        memset(buffHeader[i], 0, headerBuffSize);
+        returnVal = clEnqueueWriteBuffer(command_queue[i], clGPUHeaderBuffer[i], CL_TRUE, 0, headerBuffSize, buffHeader[i], 0, NULL, NULL);
+
+
+
+        //Allocate SHA256 scratch buffer - this probably isnt needed if properly optimized
+        uint32_t scratchBuffSize = computeUnits * 32;
+        cl_mem clGPUScratchBuffer = clCreateBuffer(context[i], CL_MEM_READ_WRITE, scratchBuffSize, NULL, &returnVal);
+        returnVal = clSetKernelArg(kernel[i], 5, sizeof(clGPUScratchBuffer), (void*)&clGPUScratchBuffer);
+        /*
+        unsigned char* buffScratch = (unsigned char*)malloc(scratchBuffSize);
+        memset(buffScratch, 0, scratchBuffSize);
+        returnVal = clEnqueueWriteBuffer(command_queue, clGPUScratchBuffer, CL_TRUE, 0, scratchBuffSize, buffScratch, 0, NULL, NULL);
+        */
+    }
+
+
+}
+
 
 //returns 1 if timeout or 0 if successful
-int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int platformID, int deviceID, uint32_t serverNonce) {
+int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, uint32_t serverNonce, int gpuIndex) {
 
 
 
@@ -220,165 +381,21 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     //allocate flag to indicate hash found for each compute unit (this is for later)
     //call kernel code with program, block header, memory buffer, result buffer and flag as params
 
-
-    uint32_t largestMemgen = 0;
+    uint32_t junk;
     uint32_t byteCodeLen = 0;
-    uint32_t* byteCode = executeGPUAssembleByteCode(&largestMemgen, prevBlockHash, merkleRoot, &byteCodeLen);
-
+    uint32_t* byteCode = executeGPUAssembleByteCode(&junk, prevBlockHash, merkleRoot, &byteCodeLen);
 
     cl_int returnVal;
-    cl_platform_id* platform_id = (cl_platform_id*)malloc(16 * sizeof(cl_platform_id));
-    cl_device_id *device_id = (cl_device_id*)malloc(16 * sizeof(cl_device_id));
-    cl_uint ret_num_devices;
-    cl_uint ret_num_platforms;
-    cl_context context;
 
-    //Initialize context
-    returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
-    returnVal = clGetDeviceIDs(platform_id[platformID], CL_DEVICE_TYPE_GPU, 16, device_id, &ret_num_devices);
-    cl_device_id selected_device = device_id[deviceID];
-    context = clCreateContext(NULL, 1, &selected_device, NULL, NULL, &returnVal);
-
-
-    size_t sizeRet;
-    cl_ulong globalMem;
-    cl_ulong localMem;
-    cl_uint computeUnits;
-    size_t workGroups;
-    cl_bool littleEndian;
-
-    //Get some device capabilities
-    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(globalMem), &globalMem, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_LOCAL_MEM_SIZE, sizeof(localMem), &localMem, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(computeUnits), &computeUnits, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(workGroups), &workGroups, &sizeRet);
-    returnVal = clGetDeviceInfo(device_id[deviceID], CL_DEVICE_ENDIAN_LITTLE, sizeof(littleEndian), &littleEndian, &sizeRet);
-    
-
-    computeUnits = numComputeUnits;
-
-    //Read the kernel source
-    FILE* kernelSourceFile;
-
-    kernelSourceFile = fopen("dyn_miner.cl", "r");
-    if (!kernelSourceFile) {
-
-        fprintf(stderr, "Failed to load kernel.\n");
-        return -1;
-
-    }
-    fseek(kernelSourceFile, 0, SEEK_END);
-    size_t sourceFileLen = ftell(kernelSourceFile)+1;
-    char *kernelSource = (char*)malloc(sourceFileLen);
-    memset(kernelSource, 0, sourceFileLen);
-    fseek(kernelSourceFile, 0, SEEK_SET);
-    fread(kernelSource, 1, sourceFileLen, kernelSourceFile);
-    fclose(kernelSourceFile);
-
-
-    cl_program program;
-    cl_kernel kernel;
-    cl_command_queue command_queue;
-
-    //Create kernel program
-    program = clCreateProgramWithSource(context, 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
-    returnVal = clBuildProgram(program, 1, &selected_device, NULL, NULL, NULL);
-    free(kernelSource);
-
-    if (returnVal == CL_BUILD_PROGRAM_FAILURE) {
-        // Determine the size of the log
-        size_t log_size;
-        clGetProgramBuildInfo(program, selected_device, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
-
-        // Allocate memory for the log
-        char* log = (char*)malloc(log_size);
-
-        // Get the log
-        clGetProgramBuildInfo(program, selected_device, CL_PROGRAM_BUILD_LOG, log_size, log, NULL);
-
-        // Print the log
-        printf("\n\n%s\n", log);
-    }
-
-    kernel = clCreateKernel(program, "dyn_hash", &returnVal);
-    command_queue = clCreateCommandQueueWithProperties(context, selected_device, NULL, &returnVal);
-    
-
-    //Calculate buffer sizes - mempool, hash result buffer, done flag
-    uint32_t memgenBytes = largestMemgen * 32;
-    uint32_t globalMempoolSize = memgenBytes * computeUnits;
-    //TODO - make sure this is less than globalMem
-
-
-
-
-    //Allocate program source buffer and load
-    cl_mem clGPUProgramBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, byteCodeLen, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 0, sizeof(clGPUProgramBuffer), (void*)&clGPUProgramBuffer);
-    returnVal = clEnqueueWriteBuffer(command_queue, clGPUProgramBuffer, CL_TRUE, 0, byteCodeLen, byteCode, 0, NULL, NULL);
-
-
-    //Allocate global memory buffer and zero
-    cl_mem clGPUMemGenBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, globalMempoolSize, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 1, sizeof(clGPUMemGenBuffer), (void*)&clGPUMemGenBuffer);
-    unsigned char* buffMemGen = (unsigned char*)malloc(globalMempoolSize);
-    memset(buffMemGen, 0, globalMempoolSize);
-    returnVal = clEnqueueWriteBuffer(command_queue, clGPUMemGenBuffer, CL_TRUE, 0, globalMempoolSize, buffMemGen, 0, NULL, NULL);
-
-
-    //Size of memgen area - this is the number of 8 uint blocks
-    returnVal = clSetKernelArg(kernel, 2, sizeof(largestMemgen), (void*)&largestMemgen);
-
-
-    //Allocate hash result buffer and zero
-    uint32_t hashResultSize = computeUnits * 32;
-    cl_mem clGPUHashResultBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, hashResultSize, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 3, sizeof(clGPUHashResultBuffer), (void*)&clGPUHashResultBuffer);
-    uint32_t* buffHashResult = (uint32_t*)malloc(hashResultSize);
-    memset(buffHashResult, 0, hashResultSize);
-    returnVal = clEnqueueWriteBuffer(command_queue, clGPUHashResultBuffer, CL_TRUE, 0, hashResultSize, buffHashResult, 0, NULL, NULL);
-
-    /*
-    //Allocate found flag buffer and zero
-    uint32_t doneFlagSize = computeUnits;
-    cl_mem clGPUDoneBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, doneFlagSize, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 4, sizeof(clGPUDoneBuffer), (void*)&clGPUDoneBuffer);
-    unsigned char* buffDoneFlag = (unsigned char*)malloc(doneFlagSize);
-    memset(buffDoneFlag, 0, doneFlagSize);
-    returnVal = clEnqueueWriteBuffer(command_queue, clGPUDoneBuffer, CL_TRUE, 0, doneFlagSize, buffDoneFlag, 0, NULL, NULL);
-    */
-
-    //Allocate header buffer and load
-    uint32_t headerBuffSize = computeUnits * 80;
-    cl_mem clGPUHeaderBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, headerBuffSize, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 4, sizeof(clGPUHeaderBuffer), (void*)&clGPUHeaderBuffer);
-    unsigned char* buffHeader = (unsigned char*)malloc(headerBuffSize);
-    memset(buffHeader, 0, headerBuffSize);
-    returnVal = clEnqueueWriteBuffer(command_queue, clGPUHeaderBuffer, CL_TRUE, 0, headerBuffSize, buffHeader, 0, NULL, NULL);
-
-
-    
-    //Allocate SHA256 scratch buffer - this probably isnt needed if properly optimized
-    uint32_t scratchBuffSize = computeUnits * 32;
-    cl_mem clGPUScratchBuffer = clCreateBuffer(context, CL_MEM_READ_WRITE, scratchBuffSize, NULL, &returnVal);
-    returnVal = clSetKernelArg(kernel, 5, sizeof(clGPUScratchBuffer), (void*)&clGPUScratchBuffer);
-    unsigned char* buffScratch = (unsigned char*)malloc(scratchBuffSize);
-    memset(buffScratch, 0, scratchBuffSize);
-    returnVal = clEnqueueWriteBuffer(command_queue, clGPUScratchBuffer, CL_TRUE, 0, scratchBuffSize, buffScratch, 0, NULL, NULL);
-    
-
-
-    /////////////////////////////////////////////////
-
-
+    returnVal = clEnqueueWriteBuffer(command_queue[gpuIndex], clGPUProgramBuffer[gpuIndex], CL_TRUE, 0, byteCodeLen, byteCode, 0, NULL, NULL);
 
 
     time_t start;
     time(&start);
     time_t lastreport = start;
 
-    for (int i = 0; i < computeUnits; i++) 
-        memcpy(buffHeader + (i * 80), blockHeader, 80);
+    for (int i = 0; i < numComputeUnits; i++)
+        memcpy(buffHeader[gpuIndex] + (i * 80), blockHeader, 80);
 
     int loops = 0;
     srand(start);
@@ -390,35 +407,36 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     unsigned char best[32];
     memset(best, 255, 32);
 
-    int foundIndex;
+    int foundIndex = -1;
 
     uint32_t startNonce = nonce;
     bool timeout = false;
-    while ((!found) && (!timeout)) {
+    while ((!found) && (!timeout) && (!globalFound) && (!globalTimeout)) {
 
-        for (int i = 0; i < computeUnits; i++) {
+        for (int i = 0; i < numComputeUnits; i++) {
             uint32_t nonce1 = nonce + i;
-            memcpy(buffHeader + (i * 80) + 76, &nonce1, 4);
+            memcpy(buffHeader[gpuIndex] + (i * 80) + 76, &nonce1, 4);
         }
 
-        returnVal = clEnqueueWriteBuffer(command_queue, clGPUHeaderBuffer, CL_TRUE, 0, headerBuffSize, buffHeader, 0, NULL, NULL);
+        returnVal = clEnqueueWriteBuffer(command_queue[gpuIndex], clGPUHeaderBuffer[gpuIndex], CL_TRUE, 0, headerBuffSize, buffHeader[gpuIndex], 0, NULL, NULL);
 
-        size_t globalWorkSize = computeUnits;
+        size_t globalWorkSize = numComputeUnits;
         size_t localWorkSize = 1;
-        returnVal = clEnqueueNDRangeKernel(command_queue, kernel, 1, NULL, &globalWorkSize, &localWorkSize, 0, NULL, NULL);
-        returnVal = clFinish(command_queue);
+        returnVal = clEnqueueNDRangeKernel(command_queue[gpuIndex], kernel[gpuIndex], 1, NULL, &globalWorkSize, &localWorkSize, 0, NULL, NULL);
+        returnVal = clFinish(command_queue[gpuIndex]);
 
-        returnVal = clEnqueueReadBuffer(command_queue, clGPUHashResultBuffer, CL_TRUE, 0, hashResultSize, buffHashResult, 0, NULL, NULL);
+        returnVal = clEnqueueReadBuffer(command_queue[gpuIndex], clGPUHashResultBuffer[gpuIndex], CL_TRUE, 0, hashResultSize, buffHashResult[gpuIndex], 0, NULL, NULL);
 
 
 
-        int j = 0;
-        while ((!found) && (j < computeUnits)) {
+
+        int k = 0;
+        while ((!found) && (k < numComputeUnits)) {
             bool ok = false;
             bool done = false;
             int i = 0;
 
-            memcpy(hashA, &buffHashResult[j * 8], 32);
+            memcpy(hashA, &buffHashResult[gpuIndex][k * 8], 32);
 
             while ((!ok) && (i < 32) && (!done))
                 if (hashA[i] < nativeTarget[i])
@@ -440,15 +458,16 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
                 else
                     done = true;
 
-            if (better) 
+            if (better)
                 memcpy(best, hashA, 32);
 
 
             if (ok)
                 found = true;
-            else 
-                j++;
+            else
+                k++;
         }
+
 
         time_t now;
         time(&now);
@@ -456,7 +475,7 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
             time_t current;
             time(&current);
             long long diff = current - start;
-            printf("hashrate: %8.2f\n", (float)(nonce - startNonce) / float(diff));
+            printf("GPU %d hashrate: %8.2f\n", gpuIndex, (float)(nonce - startNonce) / float(diff));
 
             if (now - start > 18) {
                 timeout = true;
@@ -468,33 +487,18 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
         loops++;
 
         if (found) {
-            foundIndex = j;
+            foundIndex = k;
+            globalFound = true;
         }
-        else
-            nonce += computeUnits;
+        else {
+            nonce += numComputeUnits;
+            globalNonceCount += numComputeUnits;
+        }
 
     }
 
-    memcpy(resultNonce, buffHeader + (foundIndex * 80) + 76, 4);
-
-    free(platform_id);
-    free(device_id);
-    free(buffMemGen);
-    free(buffHashResult);
-    free(buffHeader);
-    free(buffScratch);
-
-    clReleaseKernel(kernel);
-    clReleaseProgram(program);
-    clReleaseMemObject(clGPUProgramBuffer);
-    clReleaseMemObject(clGPUMemGenBuffer);
-    clReleaseMemObject(clGPUHashResultBuffer);
-    clReleaseMemObject(clGPUHeaderBuffer);
-    clReleaseMemObject(clGPUScratchBuffer);
-    clReleaseCommandQueue(command_queue);
-    clReleaseContext(context);
-
-
+    if (foundIndex != -1)
+        memcpy(resultNonce, buffHeader + (foundIndex * 80) + 76, 4);
 
 
     return timeout;

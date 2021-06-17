@@ -1,6 +1,9 @@
 #include "dynhash.h"
 
 
+CDynHash::CDynHash() {
+    programLoaded = false;
+}
 
 void CDynHash::load(std::string program) {
 
@@ -24,6 +27,7 @@ void CDynHash::load(std::string program) {
         program->startingTime = blockTime;
         programs.push_back(program);
     }
+
 }
 
 
@@ -44,6 +48,9 @@ std::string CDynHash::calcBlockHeaderHash(uint32_t blockTime, unsigned char* blo
 
 void CDynHash::addProgram(uint32_t startTime, std::string strProgram) {
 
+    if (programLoaded)
+        return;
+
     CDynProgram* program = new CDynProgram();
     program->startingTime = startTime;
 
@@ -54,5 +61,8 @@ void CDynHash::addProgram(uint32_t startTime, std::string strProgram) {
     }
 
     programs.push_back(program);
+
+    programLoaded = true;
+
 
 }

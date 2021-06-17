@@ -10,7 +10,7 @@
 #include <iterator>
 #include <CL/cl_platform.h>
 #include <CL/cl.h>
-
+#include "dyn_miner.h"
 
 
 
@@ -31,12 +31,30 @@ public:
     int32_t startingTime;
     std::vector<std::string> program;
 
+    uint32_t numOpenCLDevices;
+    cl_device_id* openCLDevices;
+
+    cl_mem* clGPUProgramBuffer;
+
+    uint32_t hashResultSize;
+    cl_mem* clGPUHashResultBuffer;
+    uint32_t** buffHashResult;
+
+    uint32_t headerBuffSize;
+    cl_mem* clGPUHeaderBuffer;
+    unsigned char** buffHeader;
+
+    cl_kernel* kernel;
+    cl_command_queue* command_queue;
+
+
     const std::vector<char> hexDigit = {'0', '1', '2', '3', '4','5','6','7','8','9','A','B','C','D','E','F'};
 
     std::string execute(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot);
 
 
-    int executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, int platformID, int deviceID, uint32_t serverNonce);
+    void initOpenCL(int platformID, int computeUnits );
+    int executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t* resultNonce, int numComputeUnits, uint32_t serverNonce, int gpuIndex);
         
     uint32_t* executeGPUAssembleByteCode(uint32_t* largestMemgen, std::string prevBlockHash, std::string merkleRoot, uint32_t* byteCodeLen);
 

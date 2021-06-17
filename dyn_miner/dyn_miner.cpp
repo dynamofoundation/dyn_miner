@@ -84,23 +84,29 @@ unsigned char nativeData[80];
 
 int numCPUThreads;
 int GPUplatformID;
-int GPUdeviceID;
 
 uint32_t serverNonce;   //nonce from pool server, if used
 
+struct sGPUWork {
+    int gpuIndex;
+    unsigned char result[80];
+};
 
-int doGPUHash(void *result) {
+
+void doGPUHash(void *result) {
+
+    sGPUWork* data = (sGPUWork*)result;
+
     uint32_t resultNonce;
 
     unsigned char header[80];
     memcpy(header, nativeData, 80);
 
-    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, GPUplatformID, GPUdeviceID, serverNonce);
+    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, serverNonce, data->gpuIndex);
 
     memcpy(header + 76, &resultNonce, 4);
-    memcpy(result, header, 80);
+    memcpy(data->result, header, 80);
 
-    return iresult;
 }
 
 
@@ -216,7 +222,7 @@ int main(int argc, char * argv[])
     printf("We hope others will use this as a code base to produce production\n");
     printf("quality mining software.\n");
     printf("\n");
-    printf("Version 0.11, June 2, 2021\n");
+    printf("Version 0.12, June 17, 2021\n");
     printf("*******************************************************************\n");
 
     printf("args=%d\n", argc);
@@ -252,8 +258,8 @@ int main(int argc, char * argv[])
     printf("\n");
 
 
-    if (argc != 10) {
-        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <gpu device id> <stratum | solo>\n\n");
+    if (argc != 9) {
+        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <stratum | solo>\n\n");
         printf("EXAMPLE:\n");
         printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 0 pool\n");
         printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 1 0 solo\n");
@@ -273,12 +279,14 @@ int main(int argc, char * argv[])
     char* minerType = argv[5];
     numCPUThreads = atoi(argv[6]);
     GPUplatformID = atoi(argv[7]);
-    GPUdeviceID = atoi(argv[8]);
-    char* mode = argv[9];
+    char* mode = argv[8];
 
     if ((toupper(minerType[0]) != 'C') && (toupper(minerType[0]) != 'G')) {
         printf("Miner type must be CPU or GPU");
     }
+
+
+
 
     using json = nlohmann::json;
 
@@ -289,6 +297,7 @@ int main(int argc, char * argv[])
     chunk.size = 0;
 
     hashFunction = new CDynHash();
+
 
     CURL* curl;
     CURLcode res;
@@ -354,7 +363,16 @@ int main(int argc, char * argv[])
                 //printf("%s\n", result.dump().c_str());
                 int start_time = result["result"][0]["start_time"];
                 std::string program = result["result"][0]["program"];
+
+                //if we are using GPU mode and this is the first time we are loading the program, then init the kernel
+                bool initGPU = false;
+                if (toupper(minerType[0] == 'G')) {
+                    if (hashFunction->programs.empty())
+                        initGPU = true;
+                }
                 hashFunction->addProgram(start_time, program);
+                if (initGPU)
+                    hashFunction->programs[0]->initOpenCL(GPUplatformID, numCPUThreads);
             }
 
 
@@ -671,7 +689,29 @@ int main(int argc, char * argv[])
 #endif
 
                 if (toupper(minerType[0] == 'G')) {
-                    globalTimeout = doGPUHash(header);
+                    for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
+                        sGPUWork* work = (sGPUWork*)malloc(sizeof(sGPUWork));
+                        work->gpuIndex = i;
+                        _beginthread(doGPUHash, 0, work);
+                    }
+
+                    time_t start;
+                    time(&start);
+
+                    while ((!globalFound) && (!globalTimeout)) {
+                        Sleep(1000);
+                        time_t now;
+                        time(&now);
+                        if ((now - start) % 3 == 0) {
+                            printf("Total hashrate: %8.2f\n", (float)globalNonceCount / (float)(now - start));
+                        }
+                        if (now - start > 18) {
+                            globalTimeout = true;
+                            printf("Checking for stale block\n");
+                        }
+                    }
+
+
                 }
 
 
