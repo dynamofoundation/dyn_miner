@@ -97,9 +97,11 @@ void doGPUHash(int gpuIndex, unsigned char* result) {
     unsigned char header[80];
     memcpy(header, nativeData, 80);
 
-    int iresult = hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, serverNonce, gpuIndex);
+    time_t now;
+    time(&now);
 
-    if (!iresult) {
+    if (hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, serverNonce + gpuIndex * now, gpuIndex)) {
+        printf("%d found %d\n", gpuIndex, resultNonce);
         memcpy(header + 76, &resultNonce, 4);
         memcpy(result, header, 80);
     }
@@ -208,17 +210,26 @@ void doHash(void* result) {
 }
 
 
-void xxxx(int z) {
-    printf("%d", z);
-}
-
 
 int main(int argc, char * argv[])
 {
 
+    /*
+    // Get current flag
+    int tmpFlag = _CrtSetDbgFlag(_CRTDBG_REPORT_FLAG);
+    tmpFlag |= _CRTDBG_LEAK_CHECK_DF;
+    tmpFlag |= _CRTDBG_CHECK_CRT_DF;
+    tmpFlag |= _CRTDBG_ALLOC_MEM_DF;
+    tmpFlag |= _CRTDBG_CHECK_ALWAYS_DF;
+    _CrtSetDbgFlag(tmpFlag);
 
+    printf("%d\n", _CrtCheckMemory());
 
+    char* test = (char*)malloc(10);
+    test[9] = 0;
 
+    //printf("%d\n", _CrtCheckMemory());
+    */
 
     printf("*******************************************************************\n");
     printf("Dynamo coin reference miner.  This software is supplied by Dynamo\n");
@@ -698,8 +709,9 @@ int main(int argc, char * argv[])
 
 
                 if (toupper(minerType[0] == 'G')) {
-                    for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
-                        std::thread t1(doGPUHash, i, header);
+                    //for (int i = 0; i < 1; i++) {
+                      for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
+                            std::thread t1(doGPUHash, i, header);
                         std::this_thread::sleep_for(std::chrono::milliseconds(strMerkleRoot[10]));
                         t1.detach();
                     }
@@ -725,6 +737,7 @@ int main(int argc, char * argv[])
 
                 }
 
+                //printf("%d\n", _CrtCheckMemory());
 
 
                 //submit solution

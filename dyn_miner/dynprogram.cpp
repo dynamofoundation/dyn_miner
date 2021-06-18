@@ -224,7 +224,7 @@ void CDynProgram::initOpenCL(int platformID, int computeUnits) {
 
 
     clGPUHashResultBuffer = (cl_mem*)malloc(16 * sizeof(cl_mem));
-    buffHashResult = (uint32_t**)malloc(16 * sizeof(uint32_t));
+    buffHashResult = (uint32_t**)malloc(16 * sizeof(uint32_t*));
 
     clGPUHeaderBuffer = (cl_mem*)malloc(16 * sizeof(cl_mem));
     buffHeader = (unsigned char**)malloc(16 * sizeof(char*));
@@ -395,7 +395,7 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     time_t lastreport = start;
 
     for (int i = 0; i < numComputeUnits; i++)
-        memcpy(buffHeader[gpuIndex] + (i * 80), blockHeader, 80);
+        memcpy(&buffHeader[gpuIndex][i * 80], blockHeader, 80);
 
     int loops = 0;
     srand(start);
@@ -415,7 +415,7 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
         for (int i = 0; i < numComputeUnits; i++) {
             uint32_t nonce1 = nonce + i;
-            memcpy(buffHeader[gpuIndex] + (i * 80) + 76, &nonce1, 4);
+            memcpy(&buffHeader[gpuIndex][i * 80 + 76], &nonce1, 4);
         }
 
         returnVal = clEnqueueWriteBuffer(command_queue[gpuIndex], clGPUHeaderBuffer[gpuIndex], CL_TRUE, 0, headerBuffSize, buffHeader[gpuIndex], 0, NULL, NULL);
@@ -497,11 +497,12 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
     }
 
-    if (foundIndex != -1)
-        memcpy(resultNonce, buffHeader + (foundIndex * 80) + 76, 4);
+    if (foundIndex != -1) {
+        memcpy(resultNonce, &buffHeader[gpuIndex][foundIndex * 80 + 76], 4);
+        return true;
+    }
 
-
-    return timeout;
+    return false;
 }
 
 
