@@ -274,14 +274,13 @@ int main(int argc, char * argv[])
 
 
     if (argc != 9) {
-        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <stratum | solo>\n\n");
+        printf("usage: dyn_miner <RPC URL> <RPC username> <RPC password> <miner pay to address> <CPU|GPU> <num CPU threads|num GPU compute units> <gpu platform id> <pool | solo>\n\n");
         printf("EXAMPLE:\n");
-        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 0 pool\n");
-        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 1 0 solo\n");
+        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc CPU 4 0 pool\n");
+        printf("    dyn_miner http://testnet1.dynamocoin.org:6433 user 123456 dy1qxj4awv48k7nelvwwserdl9wha2mfg6w3wy05fc GPU 1000 0 solo\n");
         printf("\n");
         printf("In CPU mode the program will create N number of CPU threads.\nIn GPU mode, the program will create N number of compute units.\n");
         printf("platform ID (starts at 0) is for multi GPU systems.  Ignored for CPU.\n");
-        printf("GPU ID (starts at 0) is for multi GPU systems.  Ignored for CPU.\n");
         printf("pool mode enables use with dyn miner pool, solo is for standalone mining.\n");
 
         return -1;
