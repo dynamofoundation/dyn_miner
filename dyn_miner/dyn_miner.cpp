@@ -290,6 +290,7 @@ int main(int argc, char * argv[])
     char* RPCUser = argv[2];
     char* RPCPassword = argv[3];
     std::string minerPayToAddr = std::string(argv[4]);
+    std::string poolShareWallet = std::string(argv[4]);     //save miner's wallet addr in another place if they are mining against pool because we replace it
     char* minerType = argv[5];
     numCPUThreads = atoi(argv[6]);
     GPUplatformID = atoi(argv[7]);
@@ -761,7 +762,13 @@ int main(int argc, char * argv[])
                 strBlock += transactionString;
 
                 if (!globalTimeout) {
-                    std::string postBlockRequest = std::string("{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"") + strBlock + std::string("\"] }");
+                    std::string postBlockRequest;
+                    if (strcmp(mode, "pool") == 0) 
+                        postBlockRequest = "{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"" + strBlock + "\",\"" + poolShareWallet + "\"] }";
+                    else
+                        postBlockRequest = std::string("{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"") + strBlock + std::string("\"] }");
+
+                    printf("%s\n", postBlockRequest.c_str());
 
                     chunk.size = 0;
 
