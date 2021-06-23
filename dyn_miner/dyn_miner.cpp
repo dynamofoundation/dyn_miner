@@ -61,7 +61,6 @@ static size_t WriteMemoryCallback(void* contents, size_t size, size_t nmemb, voi
         printf("not enough memory (realloc returned NULL)\n");
         return 0;
     }
-    memset(ptr, 0, mem->size + realsize + 1);
 
     mem->memory = ptr;
     memcpy(&(mem->memory[mem->size]), contents, realsize);
@@ -101,7 +100,7 @@ void doGPUHash(int gpuIndex, unsigned char* result) {
     time(&now);
 
     if (hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, serverNonce + gpuIndex * now, gpuIndex)) {
-        printf("%d found %d\n", gpuIndex, resultNonce);
+        printf("GPU %d found nonce %d\n", gpuIndex, resultNonce);
         memcpy(header + 76, &resultNonce, 4);
         memcpy(result, header, 80);
     }
@@ -238,14 +237,15 @@ int main(int argc, char * argv[])
     printf("We hope others will use this as a code base to produce production\n");
     printf("quality mining software.\n");
     printf("\n");
-    printf("Version 0.12, June 17, 2021\n");
+    printf("Version 0.13, June 23, 2021\n");
     printf("*******************************************************************\n");
 
+    /*
     printf("args=%d\n", argc);
     for (int i = 0; i < argc; i++)
         printf("arg%d=%s\n", i, argv[i]);
     printf("\n");
-
+    */
 
     cl_int returnVal;
     cl_platform_id* platform_id = (cl_platform_id*)malloc(16 * sizeof(cl_platform_id));
@@ -259,6 +259,7 @@ int main(int argc, char * argv[])
     cl_uint computeUnits;
     size_t sizeRet;
 
+    printf("OpenCL GPUs detected:\n");
     //Initialize context
     returnVal = clGetPlatformIDs(16, platform_id, &ret_num_platforms);
     for (int i = 0; i < ret_num_platforms; i++) {
@@ -768,7 +769,7 @@ int main(int argc, char * argv[])
                     else
                         postBlockRequest = std::string("{ \"id\": 0, \"method\" : \"submitblock\", \"params\" : [\"") + strBlock + std::string("\"] }");
 
-                    printf("%s\n", postBlockRequest.c_str());
+                    //printf("%s\n", postBlockRequest.c_str());
 
                     chunk.size = 0;
 
