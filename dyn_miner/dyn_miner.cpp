@@ -382,7 +382,7 @@ int main(int argc, char * argv[])
 
                 //if we are using GPU mode and this is the first time we are loading the program, then init the kernel
                 bool initGPU = false;
-                if (toupper(minerType[0] == 'G')) {
+                if (toupper(minerType[0]) == 'G') {
                     if (hashFunction->programs.empty())
                         initGPU = true;
                 }
@@ -679,7 +679,7 @@ int main(int argc, char * argv[])
                 globalTimeout = false;
                 globalNonceCount = 0;
 
-                if (toupper(minerType[0] == 'C')) {
+                if (toupper(minerType[0]) == 'C') {
                     //CPU miner
                     for (int i = 0; i < numCPUThreads; i++) {     
                         std::thread t1(doHash, header);
