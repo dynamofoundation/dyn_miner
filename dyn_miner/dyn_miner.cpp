@@ -709,7 +709,7 @@ int main(int argc, char * argv[])
                 }
 
 
-                if (toupper(minerType[0] == 'G')) {
+                if (toupper(minerType[0]) == 'G') {
                     //for (int i = 0; i < 1; i++) {
                       for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
                             std::thread t1(doGPUHash, i, header);
