@@ -237,7 +237,7 @@ int main(int argc, char * argv[])
     printf("We hope others will use this as a code base to produce production\n");
     printf("quality mining software.\n");
     printf("\n");
-    printf("Version 0.13, June 23, 2021\n");
+    printf("Version 0.14, July 4, 2021\n");
     printf("*******************************************************************\n");
 
     /*
