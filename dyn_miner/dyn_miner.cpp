@@ -1,6 +1,8 @@
 // dyn_miner.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
+//#define _DEBUG_MINER
+
 #include <iostream>
 
 #include <thread>
@@ -91,6 +93,11 @@ uint32_t serverNonce;   //nonce from pool server, if used
 
 void doGPUHash(int gpuIndex, unsigned char* result) {
 
+#ifdef _DEBUG_MINER
+    printf("start gpu thread %d\n", gpuIndex);
+#endif
+
+
     uint32_t resultNonce;
 
     unsigned char header[80];
@@ -123,6 +130,11 @@ void doHash(void* result) {
 #ifdef __linux__
     uint32_t nonce = rand() * t;
 #endif
+
+#ifdef _DEBUG_MINER
+    printf("start cpu thread\n", nonce);
+#endif
+
 
     unsigned char header[80];
     memcpy(header, nativeData, 80);
@@ -320,6 +332,11 @@ int main(int argc, char * argv[])
 
     curl_global_init(CURL_GLOBAL_ALL);
 
+#ifdef _DEBUG_MINER
+    printf("init curl\n");
+#endif
+
+
     while (true) {
         curl = curl_easy_init();
         if (curl) {
@@ -327,6 +344,10 @@ int main(int argc, char * argv[])
             time(&t);
             serverNonce = t;    //if no pool use epoch for GPU nonce  TODO - can get more entropy here
             if (strcmp(mode, "pool") == 0) {
+#ifdef _DEBUG_MINER
+                printf("pool call\n");
+#endif
+
                 std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"getpooldata\", \"params\" : [] }");
 
                 chunk.size = 0;
@@ -355,6 +376,10 @@ int main(int argc, char * argv[])
                 chunk.size = 0;
             }
 
+#ifdef _DEBUG_MINER
+            printf("get hash function\n");
+#endif
+
 
             std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
 
@@ -370,11 +395,22 @@ int main(int argc, char * argv[])
 
             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, getHashRequest.c_str());
 
+#ifdef _DEBUG_MINER
+            printf("curl_easy_perform start\n");
+#endif
+
             res = curl_easy_perform(curl);
 
+#ifdef _DEBUG_MINER
+            printf("curl_easy_perform done\n");
+#endif
+
             if (res != CURLE_OK)
-                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                printf("curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             else {
+#ifdef _DEBUG_MINER
+                printf("curl_easy_perform result %s\n", chunk.memory);
+#endif
                 json result = json::parse(chunk.memory);
                 //printf("%s\n", result.dump().c_str());
                 int start_time = result["result"][0]["start_time"];
@@ -383,15 +419,29 @@ int main(int argc, char * argv[])
                 //if we are using GPU mode and this is the first time we are loading the program, then init the kernel
                 bool initGPU = false;
                 if (toupper(minerType[0]) == 'G') {
+#ifdef _DEBUG_MINER
+                    printf("init GPU hash function\n");
+#endif
+
                     if (hashFunction->programs.empty())
                         initGPU = true;
                 }
+#ifdef _DEBUG_MINER
+                printf("add hash function\n");
+#endif
                 hashFunction->addProgram(start_time, program);
                 if (initGPU) {
+#ifdef _DEBUG_MINER
+                    printf("init open cl\n");
+#endif
+
                     hashFunction->programs[0]->initOpenCL(GPUplatformID, numCPUThreads);
                 }
             }
 
+#ifdef _DEBUG_MINER
+            printf("getblocktemplate\n");
+#endif
 
             chunk.size = 0;
 
@@ -410,7 +460,7 @@ int main(int argc, char * argv[])
 
             res = curl_easy_perform(curl);
             if (res != CURLE_OK)
-                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                printf( "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             else {
                 json result = json::parse(chunk.memory);
                 //printf("%s\n", result.dump().c_str());
@@ -680,6 +730,10 @@ int main(int argc, char * argv[])
                 globalNonceCount = 0;
 
                 if (toupper(minerType[0]) == 'C') {
+#ifdef _DEBUG_MINER
+                    printf("start cpu mining\n");
+#endif
+
                     //CPU miner
                     for (int i = 0; i < numCPUThreads; i++) {     
                         std::thread t1(doHash, header);
