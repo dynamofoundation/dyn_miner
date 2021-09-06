@@ -12,6 +12,34 @@
 #include <CL/cl.h>
 #include "dyn_miner.h"
 
+// WHISKERZ CODE
+
+constexpr auto BLACK = 0;
+constexpr auto BLUE = 1;
+constexpr auto GREEN = 2;
+constexpr auto CYAN = 3;
+constexpr auto RED = 4;
+constexpr auto MAGENTA = 5;
+constexpr auto BROWN = 6;
+constexpr auto LIGHTGRAY = 7;
+constexpr auto DARKGRAY = 8;
+constexpr auto LIGHTBLUE = 9;
+constexpr auto LIGHTGREEN = 10;
+constexpr auto LIGHTCYAN = 11;
+constexpr auto LIGHTRED = 12;
+constexpr auto LIGHTMAGENTA = 13;
+constexpr auto YELLOW = 14;
+constexpr auto WHITE = 15;
+
+// For displaying Hashrate in easy-to-read format.
+constexpr float tb = 1099511627776;
+constexpr float gb = 1073741824;
+constexpr float mb = 1048576;
+constexpr float kb = 1024;
+
+constexpr char minerVersion[] = "0.14w";
+// WHISKERZ
+
 
 
 #define HASHOP_ADD 0
@@ -54,7 +82,7 @@ public:
 
 
     void initOpenCL(int platformID, int computeUnits );
-    int executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t* resultNonce, int numComputeUnits, uint32_t serverNonce, int gpuIndex);
+    int executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t* resultNonce, int numComputeUnits, uint32_t serverNonce, int gpuIndex, CDynProgram* dynProgram); //WHISKERZ
         
     uint32_t* executeGPUAssembleByteCode(uint32_t* largestMemgen, std::string prevBlockHash, std::string merkleRoot, uint32_t* byteCodeLen);
 
@@ -62,4 +90,24 @@ public:
     void parseHex(std::string input, unsigned char* output);
     unsigned char decodeHex(char in);
     std::string makeHex(unsigned char* in, int len);
+
+    // WHISKERZ CODE
+    bool checkBlockHeight(CDynProgram*);
+    bool outputStats(CDynProgram*, time_t, time_t, uint32_t);
+    std::string convertSecondsToUptime(int);
+    time_t miningStartTime;
+    bool checkingHeight = false;
+    bool timeout = false;
+
+    int acceptedBlocks;
+    int rejectedBlocks;
+    int height;
+
+    char* strRPC_URL;
+    char* RPCUser;
+    char* RPCPassword;
+    std::string minerPayToAddr;
+    char* minerType;
+    // WHISKERZ
+
 };
