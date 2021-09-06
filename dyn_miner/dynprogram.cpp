@@ -1,5 +1,10 @@
 #include "dynprogram.h"
-
+// WHISKERZ CODE
+#include "Windows.h"
+#include <curl/curl.h>
+#include <nlohmann/json.hpp>
+#include <thread>
+// WHISKERZ
 
 std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot) {
 
@@ -370,7 +375,7 @@ void CDynProgram::initOpenCL(int platformID, int computeUnits) {
 
 
 //returns 1 if timeout or 0 if successful
-int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, uint32_t serverNonce, int gpuIndex) {
+int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, uint32_t serverNonce, int gpuIndex, CDynProgram* dynProgram) { // WHISKERZ
 
 
 
@@ -410,8 +415,8 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     int foundIndex = -1;
 
     uint32_t startNonce = nonce;
-    bool timeout = false;
-    while ((!found) && (!timeout) && (!globalFound) && (!globalTimeout)) {
+    dynProgram->timeout = false; //WHISKERZ
+    while ((!found) && (!dynProgram->timeout) && (!globalFound) && (!globalTimeout)) { //WHISKERZ
 
         for (int i = 0; i < numComputeUnits; i++) {
             uint32_t nonce1 = nonce + i;
@@ -471,16 +476,18 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
 
         time_t now;
         time(&now);
+        if (dynProgram->checkingHeight == false) { std::thread([&]() { checkBlockHeight(dynProgram); }).detach(); } // WHISKERZ
         if ((now - lastreport) >= 3) {
             time_t current;
             time(&current);
             long long diff = current - start;
-            printf("GPU %d hashrate: %8.2f\n", gpuIndex, (float)(nonce - startNonce) / float(diff));
+            //printf("GPU %d hashrate: %8.2f\n", gpuIndex, (float)(nonce - startNonce) / float(diff));
+            dynProgram->outputStats(dynProgram, current, start, (nonce - startNonce)); // WHISKERZ
 
-            if (now - start > 18) {
-                timeout = true;
-                printf("Checking for stale block\n");
-            }
+            //if (now - start > 18) {
+                //dynProgram->timeout = true; //WHISKERZ
+                //printf("Checking for stale block\n");
+            //}
 
             lastreport = now;
         }
@@ -612,3 +619,170 @@ uint32_t* CDynProgram::executeGPUAssembleByteCode(uint32_t* largestMemgen, std::
     return result;
 
 }
+
+// WHISKERZ CODE:
+
+struct MemoryStruct {
+    char* memory;
+    size_t size;
+};
+
+static size_t WriteMemoryCallback(void* contents, size_t size, size_t nmemb, void* userp)
+{
+    size_t realsize = size * nmemb;
+    struct MemoryStruct* mem = (struct MemoryStruct*)userp;
+
+    char* ptr = (char*)realloc(mem->memory, mem->size + realsize + 1);
+    if (ptr == NULL) {
+        /* out of memory! */
+        printf("not enough memory (realloc returned NULL)\n");
+        return 0;
+    }
+
+    mem->memory = ptr;
+    memcpy(&(mem->memory[mem->size]), contents, realsize);
+    mem->size += realsize;
+    mem->memory[mem->size] = 0;
+
+    return realsize;
+}
+
+
+bool CDynProgram::checkBlockHeight(CDynProgram* dynProgram)
+{
+    dynProgram->checkingHeight = true;
+    CURL* curl;
+    CURLcode res;
+
+    //printf("Checking for stale block!\n");
+
+    nlohmann::json j = { {"id", 0}, {"method","getblocktemplate"}, { "params", {{{"rules", {"segwit"}} }} } };
+    std::string jData = j.dump();
+
+    struct MemoryStruct chunk;
+    chunk.memory = (char*)malloc(1);
+    chunk.size = 0;
+
+    curl = curl_easy_init();
+    curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
+    curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+    curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
+    curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK)
+        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    else {
+        nlohmann::json result = nlohmann::json::parse(chunk.memory);
+        uint32_t chainHeight = result["result"]["height"];
+        //printf("Chain Block is at: %d, we're on %d\n", chainHeight, dynProgram->height);
+        if (dynProgram->height != chainHeight) {
+            printf("Block %d has gone stale, switching to current block %d\n", dynProgram->height, chainHeight);
+            dynProgram->timeout = true;
+            globalTimeout = true;
+        }
+    }
+
+    Sleep(1000);
+    dynProgram->checkingHeight = false;
+    return(true);
+}
+
+
+bool CDynProgram::outputStats(CDynProgram* dynProgram, time_t now, time_t start, uint32_t nonce)
+{
+    HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+
+    struct tm* timeinfo;
+    char timestamp[80];
+    timeinfo = localtime(&now);
+    strftime(timestamp, 80, "%F %T", timeinfo);
+    char rateDisplay[256];
+    float hashrate = (float)nonce / (float)(now - start);
+    if (hashrate >= tb)
+        sprintf(rateDisplay, "%.2f TH/s", (float)hashrate / tb);
+    else if (hashrate >= gb && hashrate < tb)
+        sprintf(rateDisplay, "%.2f GH/s", (float)hashrate / gb);
+    else if (hashrate >= mb && hashrate < gb)
+        sprintf(rateDisplay, "%.2f MH/s", (float)hashrate / mb);
+    else if (hashrate >= kb && hashrate < mb)
+        sprintf(rateDisplay, "%.2f KH/s", (float)hashrate / kb);
+    else if (hashrate < kb)
+        sprintf(rateDisplay, "%.2f H/s ", hashrate);
+    else
+        sprintf(rateDisplay, "%.2f H/s", hashrate);
+
+    int uptimeSeconds = difftime(now, dynProgram->miningStartTime);
+    std::string uptime = convertSecondsToUptime(uptimeSeconds);
+    float uptimeMinutes = (float)uptimeSeconds / (float)60;
+    float coinsPerMinute = 0;
+    if (dynProgram->acceptedBlocks > 0) {
+        coinsPerMinute = (float)dynProgram->acceptedBlocks / uptimeMinutes;
+    }
+    else {
+        coinsPerMinute = 0;
+    }
+
+    SetConsoleTextAttribute(hConsole, LIGHTBLUE);
+    printf("%s: ", timestamp);
+    SetConsoleTextAttribute(hConsole, GREEN);
+    printf("%s", rateDisplay);
+    SetConsoleTextAttribute(hConsole, LIGHTGRAY);
+    printf(" | ");
+    SetConsoleTextAttribute(hConsole, LIGHTGREEN);
+    printf("%d", dynProgram->height);
+    SetConsoleTextAttribute(hConsole, LIGHTGRAY);
+    printf(" | ");
+    SetConsoleTextAttribute(hConsole, BLUE);
+    printf("Uptime:%s", uptime.c_str());
+    SetConsoleTextAttribute(hConsole, LIGHTGRAY);
+    printf(" | ");
+    SetConsoleTextAttribute(hConsole, LIGHTGREEN);
+    printf("A:%d", dynProgram->acceptedBlocks);
+    SetConsoleTextAttribute(hConsole, GREEN);
+    printf(" (%.2f/m)", coinsPerMinute);
+    SetConsoleTextAttribute(hConsole, RED);
+    printf(" R:%d", dynProgram->rejectedBlocks);
+    SetConsoleTextAttribute(hConsole, LIGHTGRAY);
+    printf(" | ");
+    SetConsoleTextAttribute(hConsole, LIGHTMAGENTA);
+    printf("DynMiner %s %s\n", minerVersion, dynProgram->minerType);
+    SetConsoleTextAttribute(hConsole, LIGHTGRAY);
+
+    return(true);
+}
+
+std::string CDynProgram::convertSecondsToUptime(int n)
+{
+    int days = n / (24 * 3600);
+
+    n = n % (24 * 3600);
+    int hours = n / 3600;
+
+    n %= 3600;
+    int minutes = n / 60;
+
+    n %= 60;
+    int seconds = n;
+
+    std::string uptimeString;
+    if (days > 0) {
+        uptimeString = std::to_string(days) + "d" + std::to_string(hours) + "h" + std::to_string(minutes) + "m" + std::to_string(seconds) + "s";
+    }
+    else if (hours > 0) {
+        uptimeString = std::to_string(hours) + "h" + std::to_string(minutes) + "m" + std::to_string(seconds) + "s";
+    }
+    else if (minutes > 0) {
+        uptimeString = std::to_string(minutes) + "m" + std::to_string(seconds) + "s";
+    }
+    else {
+        uptimeString = std::to_string(seconds) + "s";
+    }
+
+    return(uptimeString);
+}
+// END WHISKERZ
+

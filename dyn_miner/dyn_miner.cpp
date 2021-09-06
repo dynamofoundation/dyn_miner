@@ -1,8 +1,6 @@
 // dyn_miner.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
-//#define _DEBUG_MINER
-
 #include <iostream>
 
 #include <thread>
@@ -44,6 +42,13 @@ static int b58check(unsigned char* bin, size_t binsz, const char* b58);
 size_t address_to_script(unsigned char* out, size_t outsz, const char* addr);
 extern void sha256d(unsigned char* hash, const unsigned char* data, int len);
 
+// WHISKERZ CODE
+HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+bool checkBlockHeight(CDynProgram*);
+bool validateSubmission(CDynProgram*, uint32_t);
+bool checkingHeightCPU = false;
+CDynProgram* dynProgram;
+// WHISKERZ
 
 struct MemoryStruct {
     char* memory;
@@ -93,11 +98,6 @@ uint32_t serverNonce;   //nonce from pool server, if used
 
 void doGPUHash(int gpuIndex, unsigned char* result) {
 
-#ifdef _DEBUG_MINER
-    printf("start gpu thread %d\n", gpuIndex);
-#endif
-
-
     uint32_t resultNonce;
 
     unsigned char header[80];
@@ -106,8 +106,8 @@ void doGPUHash(int gpuIndex, unsigned char* result) {
     time_t now;
     time(&now);
 
-    if (hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, serverNonce + gpuIndex * now, gpuIndex)) {
-        printf("GPU %d found nonce %d\n", gpuIndex, resultNonce);
+    if (hashFunction->programs[0]->executeGPU(header, prevBlockHash, strMerkleRoot, nativeTarget,  &resultNonce, numCPUThreads, serverNonce + gpuIndex * now, gpuIndex, dynProgram)) {
+        //printf("GPU %d found nonce %d\n", gpuIndex, resultNonce);
         memcpy(header + 76, &resultNonce, 4);
         memcpy(result, header, 80);
     }
@@ -130,11 +130,6 @@ void doHash(void* result) {
 #ifdef __linux__
     uint32_t nonce = rand() * t;
 #endif
-
-#ifdef _DEBUG_MINER
-    printf("start cpu thread\n", nonce);
-#endif
-
 
     unsigned char header[80];
     memcpy(header, nativeData, 80);
@@ -249,7 +244,7 @@ int main(int argc, char * argv[])
     printf("We hope others will use this as a code base to produce production\n");
     printf("quality mining software.\n");
     printf("\n");
-    printf("Version 0.14, July 4, 2021\n");
+    printf("Version %s, July 4, 2021\n", minerVersion);
     printf("*******************************************************************\n");
 
     /*
@@ -299,21 +294,24 @@ int main(int argc, char * argv[])
         return -1;
     }
 
-    char* strRPC_URL = argv[1];
-    char* RPCUser = argv[2];
-    char* RPCPassword = argv[3];
-    std::string minerPayToAddr = std::string(argv[4]);
+    dynProgram = new CDynProgram();
+
+    dynProgram->strRPC_URL = argv[1];
+    dynProgram->RPCUser = argv[2];
+    dynProgram->RPCPassword = argv[3];
+    dynProgram->minerPayToAddr = argv[4];
     std::string poolShareWallet = std::string(argv[4]);     //save miner's wallet addr in another place if they are mining against pool because we replace it
-    char* minerType = argv[5];
+    dynProgram->minerType = argv[5];
     numCPUThreads = atoi(argv[6]);
     GPUplatformID = atoi(argv[7]);
     char* mode = argv[8];
 
-    if ((toupper(minerType[0]) != 'C') && (toupper(minerType[0]) != 'G')) {
+
+    if ((toupper(dynProgram->minerType[0]) != 'C') && (toupper(dynProgram->minerType[0]) != 'G')) {
         printf("Miner type must be CPU or GPU");
     }
 
-
+    time(&dynProgram->miningStartTime);
 
 
     using json = nlohmann::json;
@@ -332,11 +330,6 @@ int main(int argc, char * argv[])
 
     curl_global_init(CURL_GLOBAL_ALL);
 
-#ifdef _DEBUG_MINER
-    printf("init curl\n");
-#endif
-
-
     while (true) {
         curl = curl_easy_init();
         if (curl) {
@@ -344,18 +337,14 @@ int main(int argc, char * argv[])
             time(&t);
             serverNonce = t;    //if no pool use epoch for GPU nonce  TODO - can get more entropy here
             if (strcmp(mode, "pool") == 0) {
-#ifdef _DEBUG_MINER
-                printf("pool call\n");
-#endif
-
                 std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"getpooldata\", \"params\" : [] }");
 
                 chunk.size = 0;
 
-                curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
+                curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
                 curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-                curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
-                curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
+                curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
+                curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
 
                 curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
                 curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
@@ -370,47 +359,32 @@ int main(int argc, char * argv[])
                     json result = json::parse(chunk.memory);
                     std::string strWallet = result["walletAddr"];
                     serverNonce = result["nonce"];
-                    minerPayToAddr = strWallet;
+                    dynProgram->minerPayToAddr = strWallet;
                 }
 
                 chunk.size = 0;
             }
-
-#ifdef _DEBUG_MINER
-            printf("get hash function\n");
-#endif
 
 
             std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
 
             chunk.size = 0;
 
-            curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
+            curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
             curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-            curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
-            curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
+            curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
+            curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
 
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
 
             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, getHashRequest.c_str());
 
-#ifdef _DEBUG_MINER
-            printf("curl_easy_perform start\n");
-#endif
-
             res = curl_easy_perform(curl);
 
-#ifdef _DEBUG_MINER
-            printf("curl_easy_perform done\n");
-#endif
-
             if (res != CURLE_OK)
-                printf("curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             else {
-#ifdef _DEBUG_MINER
-                printf("curl_easy_perform result %s\n", chunk.memory);
-#endif
                 json result = json::parse(chunk.memory);
                 //printf("%s\n", result.dump().c_str());
                 int start_time = result["result"][0]["start_time"];
@@ -418,40 +392,26 @@ int main(int argc, char * argv[])
 
                 //if we are using GPU mode and this is the first time we are loading the program, then init the kernel
                 bool initGPU = false;
-                if (toupper(minerType[0]) == 'G') {
-#ifdef _DEBUG_MINER
-                    printf("init GPU hash function\n");
-#endif
-
+                if (toupper(dynProgram->minerType[0]) == 'G') {
                     if (hashFunction->programs.empty())
                         initGPU = true;
                 }
-#ifdef _DEBUG_MINER
-                printf("add hash function\n");
-#endif
                 hashFunction->addProgram(start_time, program);
                 if (initGPU) {
-#ifdef _DEBUG_MINER
-                    printf("init open cl\n");
-#endif
-
                     hashFunction->programs[0]->initOpenCL(GPUplatformID, numCPUThreads);
                 }
             }
 
-#ifdef _DEBUG_MINER
-            printf("getblocktemplate\n");
-#endif
 
             chunk.size = 0;
 
             json j = "{ \"id\": 0, \"method\" : \"getblocktemplate\", \"params\" : [{ \"rules\": [\"segwit\"] }] }"_json;
             std::string jData = j.dump();
 
-            curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
+            curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
             curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-            curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
-            curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
+            curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
+            curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
 
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
@@ -460,12 +420,12 @@ int main(int argc, char * argv[])
 
             res = curl_easy_perform(curl);
             if (res != CURLE_OK)
-                printf( "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             else {
                 json result = json::parse(chunk.memory);
                 //printf("%s\n", result.dump().c_str());
 
-                uint32_t height = result["result"]["height"];
+                dynProgram->height = result["result"]["height"];
                 uint32_t version = result["result"]["version"];
                 prevBlockHash = result["result"]["previousblockhash"];
                 int64_t coinbaseVal = result["result"]["coinbasevalue"];
@@ -487,7 +447,7 @@ int main(int argc, char * argv[])
 
                 //decode pay to address for miner
                 static unsigned char pk_script[25] = { 0 };
-                std::string payToAddress(minerPayToAddr);
+                std::string payToAddress(dynProgram->minerPayToAddr);
                 int pk_script_size = address_to_script(pk_script, sizeof(pk_script), payToAddress.c_str());
 
                 //decode pay to address for developer
@@ -510,7 +470,7 @@ int main(int argc, char * argv[])
                 le32enc((uint32_t*)(cbtx + 37), 0xffffffff);    //prev txn index out
                 int cbtx_size = 43;
 
-                for (int n = height; n; n >>= 8) {
+                for (int n = dynProgram->height; n; n >>= 8) {
                     cbtx[cbtx_size++] = n & 0xff;
                     if (n < 0x100 && n >= 0x80)
                         cbtx[cbtx_size++] = 0;
@@ -729,11 +689,7 @@ int main(int argc, char * argv[])
                 globalTimeout = false;
                 globalNonceCount = 0;
 
-                if (toupper(minerType[0]) == 'C') {
-#ifdef _DEBUG_MINER
-                    printf("start cpu mining\n");
-#endif
-
+                if (toupper(dynProgram->minerType[0]) == 'C') {
                     //CPU miner
                     for (int i = 0; i < numCPUThreads; i++) {     
                         std::thread t1(doHash, header);
@@ -747,23 +703,28 @@ int main(int argc, char * argv[])
                     time(&start);
 
                     while ((!globalFound) && (!globalTimeout)) {
+                        if (checkingHeightCPU == false) {
+                            std::thread([&]() { checkBlockHeight(dynProgram); }).detach(); // WHISKERZ
+                        }
+
                         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
                         //Sleep(1000);
                         time_t now;
                         time(&now);
                         if ((now - start) % 3 == 0) {
-                            printf("hashrate: %8.2f\n", (float)globalNonceCount / (float)(now - start));
+                            dynProgram->outputStats(dynProgram, now, start, globalNonceCount); // WHISKERZ
+                          //  printf("hashrate: %8.2f\n", (float)globalNonceCount / (float)(now - start));
                         }
-                        if (now - start > 18) {
-                            globalTimeout = true;
-                            printf("Checking for stale block\n");
-                        }
+                        //if (now - start > 18) {
+                            //globalTimeout = true;
+                            //printf("Checking for stale block\n");
+                        //}
                     }
                 }
 
 
-                if (toupper(minerType[0]) == 'G') {
+                if (toupper(dynProgram->minerType[0]) == 'G') {
                     //for (int i = 0; i < 1; i++) {
                       for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
                             std::thread t1(doGPUHash, i, header);
@@ -777,15 +738,15 @@ int main(int argc, char * argv[])
                     while ((!globalFound) && (!globalTimeout)) {
                         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
                         //Sleep(1000);
-                        time_t now;
-                        time(&now);
-                        if ((now - start) % 3 == 0) {
-                            printf("Total hashrate: %8.2f\n", (float)globalNonceCount / (float)(now - start));
-                        }
-                        if (now - start > 18) {
-                            globalTimeout = true;
-                            printf("Checking for stale block\n");
-                        }
+                        //time_t now;
+                        //time(&now);
+                        //if ((now - start) % 3 == 0) {
+                            //printf("Total hashrate: %8.2f\n", (float)globalNonceCount / (float)(now - start));
+                        //}
+                        //if (now - start > 18) {
+                            //globalTimeout = true;
+                            //printf("Checking for stale block\n");
+                        //}
                     }
 
 
@@ -827,10 +788,10 @@ int main(int argc, char * argv[])
 
                     chunk.size = 0;
 
-                    curl_easy_setopt(curl, CURLOPT_URL, strRPC_URL);
+                    curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
                     curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-                    curl_easy_setopt(curl, CURLOPT_USERNAME, RPCUser);
-                    curl_easy_setopt(curl, CURLOPT_PASSWORD, RPCPassword);
+                    curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
+                    curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
 
                     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
                     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
@@ -844,10 +805,15 @@ int main(int argc, char * argv[])
                     else {
                         json result = json::parse(chunk.memory);
 
-                        if (result["error"].is_null())
-                            printf("****Submit block Success!****\n");
-                        else
+                        if (result["error"].is_null()) {
+                            SetConsoleTextAttribute(hConsole, LIGHTCYAN);
+                            printf(" **** SUBMITTED BLOCK SOLUTION FOR APPROVAL!!! ****\n");
+                            SetConsoleTextAttribute(hConsole, LIGHTGRAY);
+                            validateSubmission(dynProgram, dynProgram->height);
+                        }
+                        else {
                             printf("Submit block failed.\n");
+                        }
                     }
                 }
 
@@ -2000,6 +1966,128 @@ int scanhash_sha256d(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 }
 
 */
+
+// WHISKERZ CODE
+
+bool checkBlockHeight(CDynProgram* dynProgram)
+{
+    checkingHeightCPU = true;
+    CURL* curl;
+    CURLcode res;
+
+
+    nlohmann::json j = { {"id", 0}, {"method","getblocktemplate"}, { "params", {{{"rules", {"segwit"}} }} } };
+    std::string jData = j.dump();
+
+    struct MemoryStruct chunk;
+    chunk.memory = (char*)malloc(1);
+    chunk.size = 0;
+    curl = curl_easy_init();
+    curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
+    curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+    curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
+    curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK)
+        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    else {
+        nlohmann::json result = nlohmann::json::parse(chunk.memory);
+        uint32_t chainHeight = result["result"]["height"];
+        //printf("%s\n", result.dump().c_str());
+
+        //printf("Chain Block is at: %" PRIu32 "\n", chainHeight);
+        if (dynProgram->height != chainHeight) {
+            printf("Block %d has gone stale, switching to current block %d\n", dynProgram->height, chainHeight);
+            globalTimeout = true;
+        }
+    }
+
+    Sleep(1000);
+    checkingHeightCPU = false;
+    return(true);
+}
+
+bool validateSubmission(CDynProgram* dynProgram, uint32_t block) {
+    CURL* curl;
+    CURLcode res;
+
+    nlohmann::json j = { {"id",0}, {"method","getblockhash"}, {"params",{block}} };
+    std::string jData = j.dump();
+
+    struct MemoryStruct chunk;
+    chunk.memory = (char*)malloc(1);
+    chunk.size = 0;
+
+    curl = curl_easy_init();
+    curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
+    curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+    curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
+    curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
+
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
+    res = curl_easy_perform(curl);
+    if (res != CURLE_OK)
+        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    else {
+        nlohmann::json result = nlohmann::json::parse(chunk.memory);
+        std::string blockhash = result["result"].dump().c_str();
+        blockhash.erase(remove(blockhash.begin(), blockhash.end(), '\"'), blockhash.end());
+
+        nlohmann::json j = { {"id",0}, {"method","getblock"}, {"params",{blockhash}} };
+        jData = j.dump();
+        chunk.size = 0;
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK)
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        else {
+            nlohmann::json result = nlohmann::json::parse(chunk.memory);
+
+            //sprintf(blockhash, result.dump().c_str());
+            std::string tx = result["result"]["tx"][0].dump().c_str();
+            tx.erase(remove(tx.begin(), tx.end(), '\"'), tx.end());
+            
+            nlohmann::json j = { {"id",0}, {"method","getrawtransaction"}, {"params", {tx, true} } };
+            jData = j.dump();
+            chunk.size = 0;
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
+            res = curl_easy_perform(curl);
+            if (res != CURLE_OK)
+                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+            else {
+                nlohmann::json result = nlohmann::json::parse(chunk.memory);
+                //printf("%s", result.dump().c_str());
+                std::string address = result["result"]["vout"][0]["scriptPubKey"]["address"].dump().c_str();
+                address.erase(remove(address.begin(), address.end(), '\"'), address.end());
+                //printf("ADDRESS: '%s' vs '%s'\n", address.c_str(), dynProgram->minerPayToAddr.c_str());
+
+                if (address != dynProgram->minerPayToAddr) {
+                    dynProgram->rejectedBlocks++;
+                    printf("  Submission failed, '%s' beat you to the draw! Pew pew!\n", address.c_str());
+                }
+                else {
+                    dynProgram->acceptedBlocks++;
+                    printf("  Submission SUCCESSFUL!! You p3wnd that block!! Sent to '%s'\n", dynProgram->minerPayToAddr.c_str());
+                }
+
+            }
+        }
+
+    }
+
+    return(true);
+}
+// END WHISKERZ
 
 
 
