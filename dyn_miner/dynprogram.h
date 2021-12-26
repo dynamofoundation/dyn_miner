@@ -37,7 +37,7 @@ constexpr float gb = 1073741824;
 constexpr float mb = 1048576;
 constexpr float kb = 1024;
 
-constexpr char minerVersion[] = "0.14w";
+constexpr char minerVersion[] = "0.20";
 // WHISKERZ
 
 

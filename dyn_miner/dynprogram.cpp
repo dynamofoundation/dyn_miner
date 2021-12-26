@@ -13,7 +13,7 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
     CSHA256 ctx;
 
     uint32_t iResult[8];
-  
+
     /*
     for (int i = 0; i < 80; i++)
         printf("%02X", blockHeader[i]);
@@ -22,14 +22,14 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
 
 
     ctx.Write(blockHeader, 80);
-    ctx.Finalize((unsigned char*) iResult);
+    ctx.Finalize((unsigned char*)iResult);
 
     /*
     for (int i = 0; i < 8; i++)
         printf("%08X", iResult[i]);
     printf("\n");
     */
-    
+
 
 
     int line_ptr = 0;       //program execution line pointer
@@ -39,12 +39,12 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
 
     while (line_ptr < program.size()) {
         std::istringstream iss(program[line_ptr]);
-        std::vector<std::string> tokens{std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{}};     //split line into tokens
+        std::vector<std::string> tokens{ std::istream_iterator<std::string>{iss}, std::istream_iterator<std::string>{} };     //split line into tokens
 
         //simple ADD and XOR functions with one constant argument
         if (tokens[0] == "ADD") {
             uint32_t arg1[8];
-            parseHex(tokens[1], (unsigned char*) arg1);
+            parseHex(tokens[1], (unsigned char*)arg1);
 
             for (int i = 0; i < 8; i++)
                 iResult[i] += arg1[i];
@@ -158,7 +158,7 @@ std::string CDynProgram::execute(unsigned char* blockHeader, std::string prevBlo
             printf("%02X", xx[i]);
         printf("\n");
         */
-       
+
 
         line_ptr++;
 
@@ -187,7 +187,7 @@ void CDynProgram::parseHex(std::string input, unsigned char* output) {
 
     for (int i = 0; i < input.length(); i += 2) {
         unsigned char value = decodeHex(input[i]) * 16 + decodeHex(input[i + 1]);
-        output[i/2] = value;
+        output[i / 2] = value;
     }
 }
 
@@ -275,14 +275,14 @@ void CDynProgram::initOpenCL(int platformID, int computeUnits) {
         char* kernelSource = (char*)malloc(sourceFileLen);
         memset(kernelSource, 0, sourceFileLen);
         fseek(kernelSourceFile, 0, SEEK_SET);
-        fread(kernelSource, 1, sourceFileLen, kernelSourceFile);
+        size_t numRead = fread(kernelSource, 1, sourceFileLen, kernelSourceFile);
         fclose(kernelSourceFile);
 
 
         cl_program program;
 
         //Create kernel program
-        program = clCreateProgramWithSource(context[i], 1, (const char**)&kernelSource, (const size_t*)&sourceFileLen, &returnVal);
+        program = clCreateProgramWithSource(context[i], 1, (const char**)&kernelSource, (const size_t*)&numRead, &returnVal);
         returnVal = clBuildProgram(program, 1, &openCLDevices[i], NULL, NULL, NULL);
         free(kernelSource);
 
@@ -373,9 +373,55 @@ void CDynProgram::initOpenCL(int platformID, int computeUnits) {
 
 }
 
+static inline uint32_t CLZz(register uint32_t x)
+{
+    // Note: clz(x_32) = 32 minus the Hamming_weight(x_32),
+    // in case the leading zero's are followed by 1-bits only
+
+    x |= x >> 1;
+
+    // the next 5 statements will turn all bits after the
+    // leading zero's into a 1-bit
+    x |= x >> 2;
+    x |= x >> 4;
+    x |= x >> 8;
+    x |= x >> 16;
+
+    // compute the Hamming weight of x ... and return 32
+    // minus the computed result'
+    x -= ((x >> 1) & 0x55555555U);
+    x = (x & 0x33333333U) + ((x >> 2) & 0x33333333U);
+    return 32U - ((((x + (x >> 4)) & 0x0F0F0F0FU) * 0x01010101U) >> 24);
+}
+
+
+unsigned int countLeadingZeros(unsigned char* hash) {
+    int c = CLZz((hash[0] << 24) + (hash[1] << 16) + (hash[2] << 8) + hash[3]);
+    if (c == 32) {
+        c += CLZz((hash[4] << 24) + (hash[5] << 16) + (hash[6] << 8) + hash[7]);
+        if (c == 64) {
+            c += CLZz((hash[8] << 24) + (hash[9] << 16) + (hash[10] << 8) + hash[11]);
+            if (c == 96) {
+                c += CLZz((hash[12] << 24) + (hash[13] << 16) + (hash[14] << 8) + hash[15]);
+                if (c == 128) {
+                    c += CLZz((hash[16] << 24) + (hash[17] << 16) + (hash[18] << 8) + hash[19]);
+                    if (c == 160) {
+                        c += CLZz((hash[20] << 24) + (hash[21] << 16) + (hash[22] << 8) + hash[23]);
+                        if (c == 192) {
+                            c += CLZz((hash[24] << 24) + (hash[25] << 16) + (hash[26] << 8) + hash[27]);
+                            if (c == 224)
+                                c += CLZz((hash[28] << 24) + (hash[29] << 16) + (hash[30] << 8) + hash[31]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return c;
+}
 
 //returns 1 if timeout or 0 if successful
-int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t *resultNonce, int numComputeUnits, uint32_t serverNonce, int gpuIndex, CDynProgram* dynProgram) { // WHISKERZ
+int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHash, std::string merkleRoot, unsigned char* nativeTarget, uint32_t* resultNonce, int numComputeUnits, uint32_t serverNonce, int gpuIndex, CDynProgram* dynProgram) { // WHISKERZ
 
 
 
@@ -386,6 +432,8 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     //allocate flag to indicate hash found for each compute unit (this is for later)
     //call kernel code with program, block header, memory buffer, result buffer and flag as params
 
+    int iNativeTarget = countLeadingZeros(nativeTarget);
+
     uint32_t junk;
     uint32_t byteCodeLen = 0;
     uint32_t* byteCode = executeGPUAssembleByteCode(&junk, prevBlockHash, merkleRoot, &byteCodeLen);
@@ -393,7 +441,6 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     cl_int returnVal;
 
     returnVal = clEnqueueWriteBuffer(command_queue[gpuIndex], clGPUProgramBuffer[gpuIndex], CL_TRUE, 0, byteCodeLen, byteCode, 0, NULL, NULL);
-
 
     time_t start;
     time(&start);
@@ -409,33 +456,66 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
     bool found = false;
 
     unsigned char hashA[32];
-    unsigned char best[32];
-    memset(best, 255, 32);
+    unsigned char bestHash[32];
+    memset(bestHash, 255, 32);
+    int bestBits = 0;
 
     int foundIndex = -1;
 
+    int gpuLoops = 200;
+
     uint32_t startNonce = nonce;
-    dynProgram->timeout = false; //WHISKERZ
-    while ((!found) && (!dynProgram->timeout) && (!globalFound) && (!globalTimeout)) { //WHISKERZ
+    while ((!found) && (!globalFound) && (!globalTimeout)) { //WHISKERZ
 
         for (int i = 0; i < numComputeUnits; i++) {
-            uint32_t nonce1 = nonce + i;
+            uint32_t nonce1 = nonce + i * gpuLoops + rand();
             memcpy(&buffHeader[gpuIndex][i * 80 + 76], &nonce1, 4);
         }
 
         returnVal = clEnqueueWriteBuffer(command_queue[gpuIndex], clGPUHeaderBuffer[gpuIndex], CL_TRUE, 0, headerBuffSize, buffHeader[gpuIndex], 0, NULL, NULL);
 
+
+
         size_t globalWorkSize = numComputeUnits;
-        size_t localWorkSize = 1;
+        size_t localWorkSize = 256;
+
+        /*
+        size_t globalWorkSize[] = { 128, 32 };
+        size_t localWorkSize[] = { 32, 1 };
+        */
+
         returnVal = clEnqueueNDRangeKernel(command_queue[gpuIndex], kernel[gpuIndex], 1, NULL, &globalWorkSize, &localWorkSize, 0, NULL, NULL);
         returnVal = clFinish(command_queue[gpuIndex]);
 
         returnVal = clEnqueueReadBuffer(command_queue[gpuIndex], clGPUHashResultBuffer[gpuIndex], CL_TRUE, 0, hashResultSize, buffHashResult[gpuIndex], 0, NULL, NULL);
-
-
+        returnVal = clEnqueueReadBuffer(command_queue[gpuIndex], clGPUHeaderBuffer[gpuIndex], CL_TRUE, 0, headerBuffSize, buffHeader[gpuIndex], 0, NULL, NULL);
 
 
         int k = 0;
+
+        unsigned char bestInBatch[32];
+        int bestBatchBits = 0;
+
+        while ((!found) && (k < numComputeUnits)) {
+            memcpy(hashA, &buffHashResult[gpuIndex][k * 8], 32);
+            int numZeros = countLeadingZeros(hashA);
+
+            if (numZeros > bestBatchBits) {
+                bestBatchBits = numZeros;
+                memcpy(bestInBatch, hashA, 32);
+            }
+
+            if (numZeros >= iNativeTarget)
+                found = true;
+            else
+                k++;
+            if (numZeros > bestBits) {
+                memcpy(bestHash, hashA, 32);
+                bestBits = numZeros;
+            }
+        }
+
+        /*
         while ((!found) && (k < numComputeUnits)) {
             bool ok = false;
             bool done = false;
@@ -463,8 +543,9 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
                 else
                     done = true;
 
-            if (better)
+            if (better) {
                 memcpy(best, hashA, 32);
+            }
 
 
             if (ok)
@@ -472,11 +553,26 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
             else
                 k++;
         }
+        */
 
+
+
+        /*
+        printf("Best batch   hash: ");
+        for (int i = 0; i < 32; i++)
+            printf("%02X", bestInBatch[i]);
+        printf("\n");
+
+
+        printf("Best overall hash: ");
+        for (int i = 0; i < 32; i++)
+            printf("%02X", bestHash[i]);
+        printf(" (%d) (%d)\n", bestBits, iNativeTarget);
+        */
 
         time_t now;
         time(&now);
-        if (dynProgram->checkingHeight == false) { std::thread([&]() { checkBlockHeight(dynProgram); }).detach(); } // WHISKERZ
+        //if (dynProgram->checkingHeight == false) { std::thread([&]() { checkBlockHeight(dynProgram); }).detach(); } // WHISKERZ
         if ((now - lastreport) >= 3) {
             time_t current;
             time(&current);
@@ -498,8 +594,8 @@ int CDynProgram::executeGPU(unsigned char* blockHeader, std::string prevBlockHas
             globalFound = true;
         }
         else {
-            nonce += numComputeUnits;
-            globalNonceCount += numComputeUnits;
+            nonce += numComputeUnits * gpuLoops;
+            globalNonceCount += numComputeUnits * gpuLoops;
         }
 
     }
@@ -648,48 +744,7 @@ static size_t WriteMemoryCallback(void* contents, size_t size, size_t nmemb, voi
 }
 
 
-bool CDynProgram::checkBlockHeight(CDynProgram* dynProgram)
-{
-    dynProgram->checkingHeight = true;
-    CURL* curl;
-    CURLcode res;
 
-    //printf("Checking for stale block!\n");
-
-    nlohmann::json j = { {"id", 0}, {"method","getblocktemplate"}, { "params", {{{"rules", {"segwit"}} }} } };
-    std::string jData = j.dump();
-
-    struct MemoryStruct chunk;
-    chunk.memory = (char*)malloc(1);
-    chunk.size = 0;
-
-    curl = curl_easy_init();
-    curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
-    curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
-    curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
-    curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
-
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
-    res = curl_easy_perform(curl);
-    if (res != CURLE_OK)
-        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-    else {
-        nlohmann::json result = nlohmann::json::parse(chunk.memory);
-        uint32_t chainHeight = result["result"]["height"];
-        //printf("Chain Block is at: %d, we're on %d\n", chainHeight, dynProgram->height);
-        if (dynProgram->height != chainHeight) {
-            printf("Block %d has gone stale, switching to current block %d\n", dynProgram->height, chainHeight);
-            dynProgram->timeout = true;
-            globalTimeout = true;
-        }
-    }
-
-    Sleep(1000);
-    dynProgram->checkingHeight = false;
-    return(true);
-}
 
 
 bool CDynProgram::outputStats(CDynProgram* dynProgram, time_t now, time_t start, uint32_t nonce)

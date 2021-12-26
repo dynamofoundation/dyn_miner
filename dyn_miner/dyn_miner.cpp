@@ -96,6 +96,52 @@ int GPUplatformID;
 uint32_t serverNonce;   //nonce from pool server, if used
 
 
+
+
+void checkBlockHeight()
+{
+
+    while ((!globalTimeout) && (!globalFound)) {
+
+        CURL* curl;
+        CURLcode res;
+
+        //printf("Checking for stale block!\n");
+
+        nlohmann::json j = { {"id", 0}, {"method","getblocktemplate"}, { "params", {{{"rules", {"segwit"}} }} } };
+        std::string jData = j.dump();
+
+        struct MemoryStruct chunk;
+        chunk.memory = (char*)malloc(1);
+        chunk.size = 0;
+
+        curl = curl_easy_init();
+        curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
+        curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
+        curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
+        curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
+
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK)
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        else {
+            nlohmann::json result = nlohmann::json::parse(chunk.memory);
+            uint32_t chainHeight = result["result"]["height"];
+            //printf("Chain Block is at: %d, we're on %d\n", chainHeight, dynProgram->height);
+            if (dynProgram->height != chainHeight) {
+                printf("Block %d has gone stale, switching to current block %d\n", dynProgram->height, chainHeight);
+                globalTimeout = true;
+            }
+        }
+
+        Sleep(1000);
+    }
+}
+
+
 void doGPUHash(int gpuIndex, unsigned char* result) {
 
     uint32_t resultNonce;
@@ -244,7 +290,7 @@ int main(int argc, char * argv[])
     printf("We hope others will use this as a code base to produce production\n");
     printf("quality mining software.\n");
     printf("\n");
-    printf("Version %s, July 4, 2021\n", minerVersion);
+    printf("Version %s, Dec 26, 2021\n", minerVersion);
     printf("*******************************************************************\n");
 
     /*
@@ -703,9 +749,11 @@ int main(int argc, char * argv[])
                     time(&start);
 
                     while ((!globalFound) && (!globalTimeout)) {
+                        /*
                         if (checkingHeightCPU == false) {
                             std::thread([&]() { checkBlockHeight(dynProgram); }).detach(); // WHISKERZ
                         }
+                        */
 
                         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
@@ -725,35 +773,16 @@ int main(int argc, char * argv[])
 
 
                 if (toupper(dynProgram->minerType[0]) == 'G') {
-                    //for (int i = 0; i < 1; i++) {
-                      for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
-                            std::thread t1(doGPUHash, i, header);
+                    std::thread([&]() { checkBlockHeight(); }).detach();
+                    for (int i = 0; i < hashFunction->programs[0]->numOpenCLDevices; i++) {
+                        std::thread t1(doGPUHash, i, header);
                         std::this_thread::sleep_for(std::chrono::milliseconds(strMerkleRoot[10]));
                         t1.detach();
                     }
 
-                    time_t start;
-                    time(&start);
-
-                    while ((!globalFound) && (!globalTimeout)) {
+                    while ((!globalFound) && (!globalTimeout)) 
                         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-                        //Sleep(1000);
-                        //time_t now;
-                        //time(&now);
-                        //if ((now - start) % 3 == 0) {
-                            //printf("Total hashrate: %8.2f\n", (float)globalNonceCount / (float)(now - start));
-                        //}
-                        //if (now - start > 18) {
-                            //globalTimeout = true;
-                            //printf("Checking for stale block\n");
-                        //}
-                    }
-
-
-
                 }
-
-                //printf("%d\n", _CrtCheckMemory());
 
 
                 //submit solution
@@ -809,7 +838,7 @@ int main(int argc, char * argv[])
                             SetConsoleTextAttribute(hConsole, LIGHTCYAN);
                             printf(" **** SUBMITTED BLOCK SOLUTION FOR APPROVAL!!! ****\n");
                             SetConsoleTextAttribute(hConsole, LIGHTGRAY);
-                            validateSubmission(dynProgram, dynProgram->height);
+                            //validateSubmission(dynProgram, dynProgram->height);
                         }
                         else {
                             printf("Submit block failed.\n");
@@ -1969,7 +1998,8 @@ int scanhash_sha256d(int thr_id, uint32_t *pdata, const uint32_t *ptarget,
 
 // WHISKERZ CODE
 
-bool checkBlockHeight(CDynProgram* dynProgram)
+/*
+void checkBlockHeight()
 {
     checkingHeightCPU = true;
     CURL* curl;
@@ -2010,6 +2040,8 @@ bool checkBlockHeight(CDynProgram* dynProgram)
     checkingHeightCPU = false;
     return(true);
 }
+
+*/
 
 bool validateSubmission(CDynProgram* dynProgram, uint32_t block) {
     CURL* curl;
