@@ -306,8 +306,8 @@ void CDynProgram::initOpenCL(int platformID, int computeUnits) {
 
 
         //Calculate buffer sizes - mempool, hash result buffer, done flag
-        uint32_t memgenBytes = largestMemgen * 32;
-        uint32_t globalMempoolSize = memgenBytes * computeUnits;
+        //uint32_t memgenBytes = largestMemgen * 32;
+        //uint32_t globalMempoolSize = memgenBytes * computeUnits;
         //TODO - make sure this is less than globalMem
 
 
@@ -316,7 +316,7 @@ void CDynProgram::initOpenCL(int platformID, int computeUnits) {
         returnVal = clSetKernelArg(kernel[i], 0, sizeof(clGPUProgramBuffer[i]), (void*)&clGPUProgramBuffer[i]);
         returnVal = clEnqueueWriteBuffer(command_queue[i], clGPUProgramBuffer[i], CL_TRUE, 0, byteCodeLen, byteCode, 0, NULL, NULL);
 
-
+        /*
         //Allocate global memory buffer and zero
         cl_mem clGPUMemGenBuffer = clCreateBuffer(context[i], CL_MEM_READ_WRITE, globalMempoolSize, NULL, &returnVal);
         returnVal = clSetKernelArg(kernel[i], 1, sizeof(clGPUMemGenBuffer), (void*)&clGPUMemGenBuffer);
@@ -328,13 +328,13 @@ void CDynProgram::initOpenCL(int platformID, int computeUnits) {
 
 
         //Size of memgen area - this is the number of 8 uint blocks
-        returnVal = clSetKernelArg(kernel[i], 2, sizeof(largestMemgen), (void*)&largestMemgen);
+        //returnVal = clSetKernelArg(kernel[i], 2, sizeof(largestMemgen), (void*)&largestMemgen);
 
 
         //Allocate hash result buffer and zero
         hashResultSize = computeUnits * 32;
         clGPUHashResultBuffer[i] = clCreateBuffer(context[i], CL_MEM_READ_WRITE, hashResultSize, NULL, &returnVal);
-        returnVal = clSetKernelArg(kernel[i], 3, sizeof(clGPUHashResultBuffer[i]), (void*)&clGPUHashResultBuffer[i]);
+        returnVal = clSetKernelArg(kernel[i], 1, sizeof(clGPUHashResultBuffer[i]), (void*)&clGPUHashResultBuffer[i]);
         buffHashResult[i] = (uint32_t*)malloc(hashResultSize);
         memset(buffHashResult[i], 0, hashResultSize);
         returnVal = clEnqueueWriteBuffer(command_queue[i], clGPUHashResultBuffer[i], CL_TRUE, 0, hashResultSize, buffHashResult[i], 0, NULL, NULL);
@@ -352,13 +352,13 @@ void CDynProgram::initOpenCL(int platformID, int computeUnits) {
         //Allocate header buffer and load
         headerBuffSize = computeUnits * 80;
         clGPUHeaderBuffer[i] = clCreateBuffer(context[i], CL_MEM_READ_WRITE, headerBuffSize, NULL, &returnVal);
-        returnVal = clSetKernelArg(kernel[i], 4, sizeof(clGPUHeaderBuffer[i]), (void*)&clGPUHeaderBuffer[i]);
+        returnVal = clSetKernelArg(kernel[i], 2, sizeof(clGPUHeaderBuffer[i]), (void*)&clGPUHeaderBuffer[i]);
         buffHeader[i] = (unsigned char*)malloc(headerBuffSize);
         memset(buffHeader[i], 0, headerBuffSize);
         returnVal = clEnqueueWriteBuffer(command_queue[i], clGPUHeaderBuffer[i], CL_TRUE, 0, headerBuffSize, buffHeader[i], 0, NULL, NULL);
 
 
-
+        /*
         //Allocate SHA256 scratch buffer - this probably isnt needed if properly optimized
         uint32_t scratchBuffSize = computeUnits * 32;
         cl_mem clGPUScratchBuffer = clCreateBuffer(context[i], CL_MEM_READ_WRITE, scratchBuffSize, NULL, &returnVal);

@@ -385,14 +385,12 @@ static inline uint CLZz(uint x)
 #define HASHOP_MEM_SELECT 7
 #define HASHOP_END 8
 
-__kernel void dyn_hash (__global uint* byteCode, __global uint* memGenBuffer, int memGenSize, __global uint* hashResult, __global unsigned char* header, __global unsigned char* shaScratch) {
+__kernel void dyn_hash (__global uint* byteCode, __global uint* hashResult, __global unsigned char* header) {
     
     int computeUnitID = get_global_id(0);
 
-    //__global uint* myMemGen = &memGenBuffer[computeUnitID * memGenSize * 8];        //each memGen unit is 256 bits, or 8 bytes
     __global uint* hostHashResult = &hashResult[computeUnitID * 8];
     __global unsigned char* hostHeader = header + (computeUnitID * 80);
-    //__global unsigned char* myScratch = shaScratch + (computeUnitID * 32);
 
     uint myMemGen[64*8];
     unsigned char myScratch[32];
